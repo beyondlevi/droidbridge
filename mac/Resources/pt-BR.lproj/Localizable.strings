@@ -35,14 +35,3 @@
 "transport.usb" = "USB";
 "transport.wifi" = "Wi-Fi";
 "menu.device" = "Aparelho";
-"menu.wifiFallback" = "Continuar conectado pelo Wi-Fi sem o cabo";
-"menu.pairWifi" = "Parear pelo Wi-Fi…";
-"pair.title" = "Parear pelo Wi-Fi";
-"pair.info" = "No Android: Opções do desenvolvedor > Depuração sem fio > Parear dispositivo com código de pareamento. Digite o endereço e o código mostrados lá, e o Endereço IP e porta da tela de Depuração sem fio.";
-"pair.address" = "Endereço de pareamento (ex.: 192.168.0.12:37000)";
-"pair.code" = "Código de pareamento (6 dígitos)";
-"pair.connectAddress" = "Endereço IP e porta (ex.: 192.168.0.12:41000)";
-"pair.button" = "Parear";
-"pair.cancel" = "Cancelar";
-"pair.ok" = "Pareado. O DroidBridge vai se conectar pelo Wi-Fi.";
-"pair.failed" = "Não foi possível parear";

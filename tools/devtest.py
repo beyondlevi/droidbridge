@@ -5,7 +5,7 @@ import socket, struct, subprocess, sys, time
 
 ADB = "adb"
 REMOTE = "/data/local/tmp/droidbridge-server.jar"
-VERSION = "0.1.0"
+VERSION = "0.2.0"
 LEFT, RIGHT, TOP, BOTTOM = 0, 1, 2, 3
 
 def adb(*a):

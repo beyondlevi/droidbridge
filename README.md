@@ -9,10 +9,14 @@ The text clipboard is shared both ways. An open-source take on DeskDock, for mac
 - Real Android pointer and keyboard: the device sees a USB mouse and keyboard (UHID).
 - Nothing to install on the device: the Mac starts a small server over adb.
 - Text clipboard sync in both directions.
-- Works with several displays: only edges that don't lead to another display count.
+- Works with several displays: arrange the device against one or two of them, as in System
+  Settings > Displays; only the stretches it touches lead to it.
+- Follows the device when it turns, and foldables when they switch screens (e.g. a Galaxy Z Fold
+  closed, on its cover screen).
+- Several Android devices on adb: pick the one to use in the menu.
 - English and Brazilian Portuguese.
 
-Status: early (0.1). USB only for now; Wi-Fi and file drag-and-drop are planned.
+Status: early (0.2). USB only for now; Wi-Fi and file drag-and-drop are planned.
 
 ## Requirements
 

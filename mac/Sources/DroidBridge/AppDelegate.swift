@@ -172,11 +172,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         speed.submenu = speedMenu
         menu.addItem(speed)
 
-        let wifi = item(L("menu.wifiFallback"), #selector(toggleWifi))
-        wifi.state = Settings.wifiFallback ? .on : .off
-        menu.addItem(wifi)
-        menu.addItem(item(L("menu.pairWifi"), #selector(pairWifi)))
-
         let cmd = item(L("menu.commandAsControl"), #selector(toggleCommand))
         cmd.state = Settings.commandAsControl ? .on : .off
         menu.addItem(cmd)
@@ -224,51 +219,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         guard let id = sender.representedObject as? String else { return }
         capture.returnToMac()
         link.select(id)
-    }
-
-    @objc private func toggleWifi() {
-        Settings.wifiFallback.toggle()
-    }
-
-    /// Pairs a device over Wi-Fi without a cable: the fields come from the device's
-    /// "Pair device with pairing code" screen and the "IP address & Port" line above it.
-    @objc private func pairWifi() {
-        let alert = NSAlert()
-        alert.messageText = L("pair.title")
-        alert.informativeText = L("pair.info")
-        let stack = NSStackView()
-        stack.orientation = .vertical
-        stack.alignment = .leading
-        stack.spacing = 6
-        func field(_ placeholder: String) -> NSTextField {
-            let f = NSTextField(frame: NSRect(x: 0, y: 0, width: 300, height: 24))
-            f.placeholderString = placeholder
-            f.widthAnchor.constraint(equalToConstant: 300).isActive = true
-            stack.addArrangedSubview(f)
-            return f
-        }
-        let pairAddress = field(L("pair.address"))
-        let code = field(L("pair.code"))
-        let connectAddress = field(L("pair.connectAddress"))
-        stack.frame = NSRect(x: 0, y: 0, width: 300, height: 84)
-        alert.accessoryView = stack
-        alert.addButton(withTitle: L("pair.button"))
-        alert.addButton(withTitle: L("pair.cancel"))
-        NSApp.activate(ignoringOtherApps: true)
-        guard alert.runModal() == .alertFirstButtonReturn else { return }
-        link.pair(address: pairAddress.stringValue.trimmingCharacters(in: .whitespaces),
-                  code: code.stringValue.trimmingCharacters(in: .whitespaces),
-                  connectAddress: connectAddress.stringValue.trimmingCharacters(in: .whitespaces)) { result in
-            let done = NSAlert()
-            switch result {
-            case .success:
-                done.messageText = L("pair.ok")
-            case let .failure(error):
-                done.messageText = L("pair.failed")
-                done.informativeText = error.localizedDescription
-            }
-            done.runModal()
-        }
     }
 
     @objc private func openArrangement() {

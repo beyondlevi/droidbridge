@@ -287,16 +287,4 @@ final class AdbParsingTests: XCTestCase {
         XCTAssertFalse(d[2].usb)
         XCTAssertEqual(d[3].state, "unauthorized")
     }
-
-    func testTlsPort() {
-        let on = "debugging_manager={\n adb_wifi={\n enabled=true\n network_ssid=\"x\"\n tls_port=46557\n }\n}"
-        XCTAssertEqual(AdbParsing.tlsPort(dumpsysAdb: on), 46557)
-        XCTAssertNil(AdbParsing.tlsPort(dumpsysAdb: "adb_wifi={\n enabled=false\n tls_port=0\n }"))
-        XCTAssertNil(AdbParsing.tlsPort(dumpsysAdb: "nothing"))
-    }
-
-    func testIPv4() {
-        XCTAssertEqual(AdbParsing.ipv4("27: wlan0: <UP>\n    inet 10.50.2.9/24 brd 10.50.2.255 scope global wlan0\n"), "10.50.2.9")
-        XCTAssertNil(AdbParsing.ipv4(""))
-    }
 }

@@ -28,18 +28,6 @@ struct Settings {
         set { d.set(newValue, forKey: "deviceSerial") }
     }
 
-    /// Keep the link over Wi-Fi when the cable is unplugged (Android 11+).
-    static var wifiFallback: Bool {
-        get { d.object(forKey: "wifiFallback") as? Bool ?? true }
-        set { d.set(newValue, forKey: "wifiFallback") }
-    }
-
-    /// Last Wi-Fi address (ip:port) of each device, by hardware serial.
-    static var wirelessAddresses: [String: String] {
-        get { d.dictionary(forKey: "wirelessAddresses") as? [String: String] ?? [:] }
-        set { d.set(newValue, forKey: "wirelessAddresses") }
-    }
-
     static var speed: Double {
         get { d.object(forKey: "speed") as? Double ?? 3.0 }
         set { d.set(newValue, forKey: "speed") }

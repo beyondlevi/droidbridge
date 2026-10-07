@@ -35,14 +35,3 @@
 "transport.usb" = "USB";
 "transport.wifi" = "Wi-Fi";
 "menu.device" = "Device";
-"menu.wifiFallback" = "Stay connected over Wi-Fi without the cable";
-"menu.pairWifi" = "Pair over Wi-Fi…";
-"pair.title" = "Pair over Wi-Fi";
-"pair.info" = "On the Android device: Developer options > Wireless debugging > Pair device with pairing code. Type the address and code shown there, and the IP address & Port from the Wireless debugging screen.";
-"pair.address" = "Pairing address (e.g. 192.168.0.12:37000)";
-"pair.code" = "Pairing code (6 digits)";
-"pair.connectAddress" = "IP address & Port (e.g. 192.168.0.12:41000)";
-"pair.button" = "Pair";
-"pair.cancel" = "Cancel";
-"pair.ok" = "Paired. DroidBridge will connect over Wi-Fi.";
-"pair.failed" = "Could not pair";
