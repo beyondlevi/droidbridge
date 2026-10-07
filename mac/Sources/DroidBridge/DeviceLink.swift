@@ -127,7 +127,7 @@ final class DeviceLink {
         }
     }
 
-    // MARK: - Devices and Wi-Fi
+    // MARK: - Devices
 
     private func listDevices(_ adb: String) -> [Device] {
         guard let out = try? run(adb, ["devices", "-l"], timeout: 5) else { return [] }
@@ -154,6 +154,82 @@ final class DeviceLink {
             byID[id] = d
         }
         return order.compactMap { byID[$0] }
+    }
+
+    private func connect(adb: String, serial: String) throws {
+        self.serial = serial
+        state = .connecting(serial)
+        guard let jar = Bundle.main.url(forResource: "droidbridge-server", withExtension: "jar") else {
+            throw LinkError("droidbridge-server.jar is missing from the app")
+        }
+        try run(adb, ["-s", serial, "push", jar.path, Self.remoteJar])
+        let port = try run(adb, ["-s", serial, "forward", "tcp:0", "localabstract:droidbridge"])
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let p = Int(port) else { throw LinkError("adb forward returned \(port)") }
+        forwardPort = p
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: adb)
+        process.arguments = ["-s", serial, "shell", "CLASSPATH=\(Self.remoteJar)", "app_process", "/",
+                             "dev.droidbridge.Main", Self.serverVersion]
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        process.standardError = pipe
+        let ready = DispatchSemaphore(value: 0)
+        var buffer = ""
+        pipe.fileHandleForReading.readabilityHandler = { [weak self] h in
+            let chunk = String(decoding: h.availableData, as: UTF8.self)
+            if chunk.isEmpty { h.readabilityHandler = nil; ready.signal(); return }
+            buffer += chunk
+            while let nl = buffer.firstIndex(of: "\n") {
+                let line = String(buffer[..<nl])
+                buffer.removeSubrange(...nl)
+                self?.log.info("server: \(line, privacy: .public)")
+                if line.contains("READY") { ready.signal() }
+            }
+        }
+        try process.run()
+        server = process
+        guard ready.wait(timeout: .now() + 10) == .success, process.isRunning else {
+            throw LinkError("the server did not start on the device")
+        }
+
+        socket = try Self.connectLocal(port: p)
+        send(Wire.hello())
+    }
+
+    private func readUntilClosed() {
+        var reader = FrameReader()
+        var buf = [UInt8](repeating: 0, count: 64 * 1024)
+        while !stopped {
+            let n = recv(socket, &buf, buf.count, 0)
+            if n <= 0 { break }
+            do {
+                for message in try reader.feed(Array(buf[0..<n])) {
+                    if case let .device(_, w, h, model) = message {
+                        state = .connected(model: model, width: w, height: h)
+                    }
+                    DispatchQueue.main.async { self.onMessage?(message) }
+                }
+            } catch {
+                log.error("bad frame: \(String(describing: error), privacy: .public)")
+                break
+            }
+        }
+        log.info("connection closed")
+    }
+
+    private func disconnect() {
+        writeQueue.sync {
+            if socket >= 0 { close(socket); socket = -1 }
+        }
+        if let server, server.isRunning { server.terminate() }
+        server = nil
+        if let adb, let serial, let forwardPort {
+            _ = try? run(adb, ["-s", serial, "forward", "--remove", "tcp:\(forwardPort)"])
+        }
+        forwardPort = nil
+        if !stopped, state != .noAdb { state = .waiting }
     }
 
     // MARK: - Helpers
