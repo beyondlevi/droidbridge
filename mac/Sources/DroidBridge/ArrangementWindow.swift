@@ -9,12 +9,12 @@ final class ArrangementModel: ObservableObject {
     @Published var displays: [DisplayInfo] = []
     @Published var device: CGRect?
     @Published var deviceName: String?
-    /// The device screen as it is held now; when it turns, its rectangle turns too.
+    /// The device screen as it is now; when it turns or a foldable changes screens, its rectangle follows.
     @Published var deviceSize: CGSize? {
         didSet {
             guard oldValue != deviceSize else { return }
             reload()
-            if let r = device, let turned = EdgeGeometry.reoriented(device: r, aspect: aspect, displays: bounds) {
+            if let r = device, let turned = EdgeGeometry.reshaped(device: r, aspect: aspect, displays: bounds) {
                 commit(turned)
             }
         }

@@ -164,17 +164,26 @@ final class DeviceRectTests: XCTestCase {
     func testReorientedKeepsTheTouchingSide() {
         // Portrait, right of the MacBook: turning it keeps its left side on the MacBook's right edge.
         let r = CGRect(x: 3840, y: 800, width: 300, height: 600)
-        let t = EdgeGeometry.reoriented(device: r, aspect: 2, displays: displays)
+        let t = EdgeGeometry.reshaped(device: r, aspect: 2, displays: displays)
         XCTAssertEqual(t, CGRect(x: 3840, y: 950, width: 600, height: 300))
-        XCTAssertNil(EdgeGeometry.reoriented(device: r, aspect: 0.5, displays: displays))
+        XCTAssertNil(EdgeGeometry.reshaped(device: r, aspect: 0.5, displays: displays))
     }
 
     func testReorientedInTheCorner() {
         // Right of the external display and above the MacBook: both sides stay.
         let r = CGRect(x: 1920, y: 94, width: 530, height: 400)
-        let t = EdgeGeometry.reoriented(device: r, aspect: 0.75, displays: displays)
-        XCTAssertEqual(t, CGRect(x: 1920, y: -36, width: 400, height: 530))
+        let t = EdgeGeometry.reshaped(device: r, aspect: 0.75, displays: displays)
+        XCTAssertEqual(t, CGRect(x: 1920, y: -36, width: 397.5, height: 530))
         XCTAssertEqual(EdgeGeometry.passages(device: t!, displays: displays).count, 2)
+    }
+
+    func testReshapedForANarrowerScreen() {
+        // A foldable switching from its inner screen (2448x1848) to the cover one (1248x1972).
+        let r = CGRect(x: 3840, y: 800, width: 400, height: 600)
+        let t = EdgeGeometry.reshaped(device: r, aspect: 1248.0 / 1972.0, displays: displays)
+        XCTAssertEqual(t?.minX, 3840)
+        XCTAssertEqual(t?.height ?? 0, 600, accuracy: 0.01)
+        XCTAssertEqual(t?.width ?? 0, 600 * 1248.0 / 1972.0, accuracy: 0.01)
     }
 
     func testDefaultDevice() {

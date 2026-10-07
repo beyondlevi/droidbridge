@@ -254,13 +254,14 @@ public enum EdgeGeometry {
         }
     }
 
-    /// When the device turns (its aspect flips between portrait and landscape), the same rectangle
-    /// turned a quarter: the sides touching displays stay where they are. Nil when nothing changes or
-    /// the turned rectangle would overlap a display or touch none.
-    public static func reoriented(device r: CGRect, aspect: CGFloat, displays: [CGRect]) -> CGRect? {
-        guard aspect > 0, (r.width >= r.height) != (aspect >= 1) else { return nil }
-        let w = r.height
-        let h = r.width
+    /// When the device screen changes shape (it turns, or a foldable switches between its screens),
+    /// the rectangle takes the new aspect, keeping its longer side and the sides that touch displays.
+    /// Nil when nothing changes or the new rectangle would overlap a display or touch none.
+    public static func reshaped(device r: CGRect, aspect: CGFloat, displays: [CGRect]) -> CGRect? {
+        guard aspect > 0, r.height > 0, abs(r.width / r.height - aspect) / aspect > 0.02 else { return nil }
+        let long = max(r.width, r.height)
+        let w = aspect >= 1 ? long : long * aspect
+        let h = aspect >= 1 ? long / aspect : long
         var x = r.midX - w / 2
         var y = r.midY - h / 2
         for p in passages(device: r, displays: displays) {
