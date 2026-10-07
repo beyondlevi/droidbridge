@@ -1,0 +1,81 @@
+#!/usr/bin/env python3
+"""Drives droidbridge-server on a connected device without the Mac app.
+Usage: devtest.py <jar> <test>   tests: enter, edge, clipboard"""
+import socket, struct, subprocess, sys, time
+
+ADB = "adb"
+REMOTE = "/data/local/tmp/droidbridge-server.jar"
+VERSION = "0.1.0"
+LEFT, RIGHT, TOP, BOTTOM = 0, 1, 2, 3
+
+def adb(*a):
+    return subprocess.run([ADB, *a], capture_output=True, text=True).stdout
+
+class Server:
+    def __init__(self, jar):
+        adb("push", jar, REMOTE)
+        port = int(adb("forward", "tcp:0", "localabstract:droidbridge").strip())
+        self.port = port
+        self.proc = subprocess.Popen([ADB, "shell", f"CLASSPATH={REMOTE}", "app_process", "/", "dev.droidbridge.Main", VERSION],
+                                     stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+        line = self.proc.stdout.readline()
+        while line and "READY" not in line:
+            print("server:", line.strip()); line = self.proc.stdout.readline()
+        self.s = socket.create_connection(("127.0.0.1", port))
+        self.send(0x01, struct.pack(">H", 1))
+        t, p = self.recv()
+        assert t == 0x81, t
+        v, w, h = struct.unpack(">HHH", p[:6])
+        self.size = (w, h)
+        print("device:", p[6:].decode(), w, h)
+
+    def send(self, t, p=b""): self.s.sendall(struct.pack(">BI", t, len(p)) + p)
+    def recv(self, timeout=None):
+        self.s.settimeout(timeout)
+        try:
+            hdr = self._n(5)
+        except socket.timeout:
+            return None, None
+        t, n = struct.unpack(">BI", hdr)
+        return t, self._n(n)
+    def _n(self, n):
+        b = b""
+        while len(b) < n:
+            c = self.s.recv(n - len(b))
+            if not c: raise EOFError
+            b += c
+        return b
+    def mouse(self, dx, dy, buttons=0, wheel=0): self.send(0x04, struct.pack(">BhhbB", buttons, dx, dy, wheel, 0))
+    def enter(self, side, ratio): self.send(0x02, struct.pack(">BH", side, int(ratio * 65535)))
+    def close(self):
+        self.s.close(); time.sleep(0.5)
+        for line in self.proc.stdout.read().splitlines()[-15:]: print("server:", line)
+        adb("forward", "--remove", f"tcp:{self.port}")
+
+def main():
+    jar, test = sys.argv[1], sys.argv[2]
+    S = Server(jar)
+    try:
+        if test in ("enter", "edge"):
+            for ratio in (0.25, 0.75):
+                t0 = time.time(); S.enter(LEFT, ratio); S.send(0x07)
+                t, _ = S.recv(5); print(f"enter left {ratio}: {time.time()-t0:.2f}s (pong={t==0x84})")
+                time.sleep(0.5)
+        if test == "edge":
+            for _ in range(40): S.mouse(8, 0); time.sleep(0.008)    # into the screen
+            t, p = S.recv(0.3); print("after moving in, unexpected:", t)
+            t0 = time.time(); got = None
+            for i in range(400):
+                S.mouse(-8, 0); time.sleep(0.008)
+                t, p = S.recv(0.001)
+                if t == 0x82:
+                    side, r = struct.unpack(">BH", p); got = (side, r / 65535); break
+            print("edge:", got, f"after {time.time()-t0:.2f}s")
+        if test == "clipboard":
+            S.send(0x06, "droidbridge mac->android ção".encode())
+            time.sleep(0.5)
+            print("set; device echo (should be none):", S.recv(1)[0])
+    finally:
+        S.close()
+
+main()
