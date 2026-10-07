@@ -145,6 +145,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         share.state = Settings.enabled ? .on : .off
         menu.addItem(share)
 
+        if link.devices.count > 1 || Settings.deviceSerial != nil {
+            let devices = NSMenuItem(title: L("menu.device"), action: nil, keyEquivalent: "")
+            let deviceMenu = NSMenu()
+            for d in link.devices {
+                let via = [d.usbSerial != nil ? L("transport.usb") : nil, d.wirelessSerial != nil ? L("transport.wifi") : nil]
+                    .compactMap { $0 }.joined(separator: " + ")
+                let i = item("\(d.model) (\(via))", #selector(chooseDevice(_:)))
+                i.representedObject = d.id
+                i.state = (Settings.deviceSerial ?? (link.devices.count == 1 ? d.id : nil)) == d.id ? .on : .off
+                deviceMenu.addItem(i)
+            }
+            devices.submenu = deviceMenu
+            menu.addItem(devices)
+        }
         menu.addItem(item(L("menu.arrange"), #selector(openArrangement)))
 
         let speed = NSMenuItem(title: L("menu.speed"), action: nil, keyEquivalent: "")
@@ -177,7 +191,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         case .waiting: return L("status.waiting")
         case .connecting: return L("status.connecting")
         case let .connected(model, _, _):
-            return String(format: L(capture.isRemote ? "status.onDevice" : "status.connected"), model)
+            let key = capture.isRemote ? "status.onDevice" : "status.connected"
+            return String(format: L(key), model, L(link.transport == .usb ? "transport.usb" : "transport.wifi"))
+        case .chooseDevice: return L("status.chooseDevice")
         case let .failed(reason): return String(format: L("status.failed"), reason)
         }
     }
@@ -197,6 +213,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     @objc private func toggleShare() {
         Settings.enabled.toggle()
         if !Settings.enabled { capture.returnToMac() }
+    }
+
+    @objc private func chooseDevice(_ sender: NSMenuItem) {
+        guard let id = sender.representedObject as? String else { return }
+        capture.returnToMac()
+        link.select(id)
     }
 
     @objc private func openArrangement() {

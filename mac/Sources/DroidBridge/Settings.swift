@@ -22,6 +22,12 @@ struct Settings {
         }
     }
 
+    /// The device to use (hardware serial); nil = the only one connected.
+    static var deviceSerial: String? {
+        get { d.string(forKey: "deviceSerial") }
+        set { d.set(newValue, forKey: "deviceSerial") }
+    }
+
     static var speed: Double {
         get { d.object(forKey: "speed") as? Double ?? 3.0 }
         set { d.set(newValue, forKey: "speed") }

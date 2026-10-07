@@ -3,7 +3,7 @@
 # Env: DROIDBRIDGE_VERSION (default 0.1.0), SIGN_IDENTITY (default "-", ad-hoc), SERVER_JAR (prebuilt jar).
 set -euo pipefail
 cd "$(dirname "$0")/.."
-VERSION=${DROIDBRIDGE_VERSION:-0.1.0}
+VERSION=${DROIDBRIDGE_VERSION:-0.2.0}
 IDENTITY=${SIGN_IDENTITY:--}
 APP=dist/DroidBridge.app
 

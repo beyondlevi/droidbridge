@@ -50,6 +50,8 @@ final class Session {
     private int pushed;
     private boolean edgeSent;
     private int buttons;
+    private float gainX;
+    private float gainY;
 
     private final Object clipLock = new Object();
     private String lastClipFromMac;
@@ -70,6 +72,7 @@ final class Session {
     void run() throws IOException {
         int[] size = displaySize();
         sendDevice(size[0], size[1]);
+        watchRotation(size);
         if (clipboard != null) {
             // Clipboard callbacks need a looper; the main thread runs one.
             new Handler(Looper.getMainLooper()).post(() -> clipboard.addPrimaryClipChangedListener(this::onDeviceClipboard));
@@ -191,14 +194,15 @@ final class Session {
         if (s != null && s.width > 0) {
             float length = horizontalEdge ? s.width - 1 : s.height - 1;
             float target = ratio * length;
-            float gain = 0;
+            // Pixels per count along this axis, learned on earlier entries.
+            float gain = horizontalEdge ? gainX : gainY;
             for (int attempt = 0; attempt < 4; attempt++) {
                 float now = horizontalEdge ? s.x : s.y;
                 float error = target - now;
                 if (Math.abs(error) < 12) {
                     break;
                 }
-                int counts = gain > 0 ? Math.round(error / gain) : (int) Math.signum(error) * 60;
+                int counts = gain > 0 ? Math.round(error / gain) : (int) Math.signum(error) * 200;
                 walk(horizontalEdge, counts);
                 sleep(15);
                 PointerProbe.Sample next = probe.sample();
@@ -206,8 +210,13 @@ final class Session {
                     break;
                 }
                 float moved = (horizontalEdge ? next.x : next.y) - now;
-                if (counts != 0 && moved * counts > 0) {
+                if (counts != 0 && moved * counts > 0 && Math.abs(counts) >= 20) {
                     gain = moved / counts;
+                    if (horizontalEdge) {
+                        gainX = gain;
+                    } else {
+                        gainY = gain;
+                    }
                 }
                 s = next;
             }
@@ -220,14 +229,14 @@ final class Session {
         returns = spans;
     }
 
-    /** Moves along one axis in small steps, so acceleration stays predictable. */
+    /** Moves along one axis in steps of the same size and pace, so the acceleration stays the same. */
     private void walk(boolean horizontal, int counts) throws IOException {
-        int step = counts > 0 ? 10 : -10;
+        int step = counts > 0 ? 50 : -50;
         while (counts != 0) {
             int s = Math.abs(counts) < Math.abs(step) ? counts : step;
             mouse.input(new byte[] {0, (byte) (horizontal ? s : 0), (byte) (horizontal ? 0 : s), 0, 0});
             counts -= s;
-            sleep(2);
+            sleep(1);
         }
     }
 
@@ -361,6 +370,43 @@ final class Session {
         out.writeInt(payload.length);
         out.write(payload);
         out.flush();
+    }
+
+    /** Tells the Mac when the screen turns (its size swaps), so its arrangement can turn too. */
+    private void watchRotation(int[] initial) {
+        final int[] last = initial.clone();
+        Handler main = new Handler(Looper.getMainLooper());
+        main.post(() -> {
+            android.hardware.display.DisplayManager dm = (android.hardware.display.DisplayManager) com.genymobile.scrcpy.FakeContext.get()
+                    .getSystemService(android.content.Context.DISPLAY_SERVICE);
+            dm.registerDisplayListener(new android.hardware.display.DisplayManager.DisplayListener() {
+                @Override
+                public void onDisplayAdded(int displayId) {
+                }
+
+                @Override
+                public void onDisplayRemoved(int displayId) {
+                }
+
+                @Override
+                public void onDisplayChanged(int displayId) {
+                    if (displayId != 0) {
+                        return;
+                    }
+                    int[] size = displaySize();
+                    if (size[0] > 0 && (size[0] != last[0] || size[1] != last[1])) {
+                        last[0] = size[0];
+                        last[1] = size[1];
+                        Log.i("display is now " + size[0] + "x" + size[1]);
+                        try {
+                            sendDevice(size[0], size[1]);
+                        } catch (IOException e) {
+                            Log.w("rotation: " + e.getMessage());
+                        }
+                    }
+                }
+            }, main);
+        });
     }
 
     private int[] displaySize() {

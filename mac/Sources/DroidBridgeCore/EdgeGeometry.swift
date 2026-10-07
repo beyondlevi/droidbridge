@@ -254,6 +254,30 @@ public enum EdgeGeometry {
         }
     }
 
+    /// When the device screen changes shape (it turns, or a foldable switches between its screens),
+    /// the rectangle takes the new aspect, keeping its longer side and the sides that touch displays.
+    /// Nil when nothing changes or the new rectangle would overlap a display or touch none.
+    public static func reshaped(device r: CGRect, aspect: CGFloat, displays: [CGRect]) -> CGRect? {
+        guard aspect > 0, r.height > 0, abs(r.width / r.height - aspect) / aspect > 0.02 else { return nil }
+        let long = max(r.width, r.height)
+        let w = aspect >= 1 ? long : long * aspect
+        let h = aspect >= 1 ? long / aspect : long
+        var x = r.midX - w / 2
+        var y = r.midY - h / 2
+        for p in passages(device: r, displays: displays) {
+            switch p.edge {
+            case .right: x = r.minX
+            case .left: x = r.maxX - w
+            case .top: y = r.maxY - h
+            case .bottom: y = r.minY
+            }
+        }
+        let next = CGRect(x: x, y: y, width: w, height: h)
+        let overlaps = displays.contains { $0.intersection(next).width > 0.5 && $0.intersection(next).height > 0.5 }
+        guard !overlaps, !passages(device: next, displays: displays).isEmpty else { return nil }
+        return next
+    }
+
     /// The default device rectangle: against the outermost display's free right edge, centered,
     /// `size` times that display's height.
     public static func defaultDevice(displays: [CGRect], aspect: CGFloat, size: CGFloat = 0.6) -> CGRect? {

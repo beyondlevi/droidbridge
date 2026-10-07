@@ -3,7 +3,7 @@
 # build_without_gradle.sh. Needs ANDROID_HOME with platforms/android-36 and build-tools/36.0.0.
 set -euo pipefail
 
-VERSION=${DROIDBRIDGE_VERSION:-0.1.0}
+VERSION=${DROIDBRIDGE_VERSION:-0.2.0}
 PLATFORM=${ANDROID_PLATFORM:-36}
 BUILD_TOOLS=${ANDROID_BUILD_TOOLS:-36.0.0}
 : "${ANDROID_HOME:?set ANDROID_HOME}"

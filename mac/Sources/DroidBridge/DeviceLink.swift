@@ -10,15 +10,32 @@ final class DeviceLink {
         case waiting
         case connecting(String)
         case connected(model: String, width: Int, height: Int)
+        case chooseDevice
         case failed(String)
     }
 
-    static let serverVersion = "0.1.0"
+    /// An Android device, possibly reachable both by USB and over Wi-Fi.
+    struct Device: Equatable {
+        /// The hardware serial (ro.serialno), the same over USB and Wi-Fi.
+        let id: String
+        let model: String
+        var usbSerial: String?
+        var wirelessSerial: String?
+    }
+
+    enum Transport { case usb, wifi }
+
+    static let serverVersion = "0.2.0"
     private static let remoteJar = "/data/local/tmp/droidbridge-server.jar"
     private let log = Logger(subsystem: "dev.droidbridge", category: "link")
 
     var onState: ((State) -> Void)?
     var onMessage: ((Wire.Message) -> Void)?
+    /// The devices adb sees now (main queue).
+    private(set) var devices: [Device] = []
+    /// How the current connection reaches the device.
+    private(set) var transport: Transport = .usb
+    private var hardwareSerials: [String: String] = [:]
 
     private(set) var state: State = .waiting {
         didSet { if state != oldValue { let s = state; DispatchQueue.main.async { self.onState?(s) } } }
@@ -66,21 +83,77 @@ final class DeviceLink {
                 Thread.sleep(forTimeInterval: 3)
                 continue
             }
-            guard let device = firstDevice(adb) else {
-                state = .waiting
+            let found = listDevices(adb)
+            DispatchQueue.main.async { self.devices = found }
+            let chosen = Settings.deviceSerial
+            let target: Device?
+            if let chosen {
+                target = found.first { $0.id == chosen }
+            } else {
+                target = found.count == 1 ? found.first : nil
+            }
+            guard let device = target, let serial = device.usbSerial ?? device.wirelessSerial else {
+                if found.count > 1, chosen == nil || !found.contains(where: { $0.id == chosen }) {
+                    state = chosen == nil ? .chooseDevice : .waiting
+                } else {
+                    state = .waiting
+                }
                 Thread.sleep(forTimeInterval: 2)
                 continue
             }
+            transport = device.usbSerial != nil ? .usb : .wifi
             do {
-                try connect(adb: adb, serial: device)
+                try connect(adb: adb, serial: serial)
                 readUntilClosed()
             } catch {
                 log.error("connect failed: \(error.localizedDescription, privacy: .public)")
                 state = .failed(error.localizedDescription)
             }
             disconnect()
-            Thread.sleep(forTimeInterval: 2)
+            Thread.sleep(forTimeInterval: 1)
         }
+    }
+
+    /// Picks a device from the menu; reconnects to it.
+    func select(_ id: String) {
+        Settings.deviceSerial = id
+        queue.async { [weak self] in self?.dropConnection() }
+    }
+
+    /// Ends the current connection; the loop picks the device again.
+    private func dropConnection() {
+        writeQueue.sync {
+            if socket >= 0 { shutdown(socket, SHUT_RDWR) }
+        }
+    }
+
+    // MARK: - Devices
+
+    private func listDevices(_ adb: String) -> [Device] {
+        guard let out = try? run(adb, ["devices", "-l"], timeout: 5) else { return [] }
+        var byID: [String: Device] = [:]
+        var order: [String] = []
+        for e in AdbParsing.devices(out) where e.state == "device" {
+            let id: String
+            if e.wireless {
+                if let cached = hardwareSerials[e.serial] {
+                    id = cached
+                } else if let s = try? run(adb, ["-s", e.serial, "shell", "getprop", "ro.serialno"], timeout: 5)
+                    .trimmingCharacters(in: .whitespacesAndNewlines), !s.isEmpty {
+                    hardwareSerials[e.serial] = s
+                    id = s
+                } else {
+                    id = e.serial
+                }
+            } else {
+                id = e.serial
+            }
+            var d = byID[id] ?? Device(id: id, model: e.model ?? id, usbSerial: nil, wirelessSerial: nil)
+            if e.wireless { d.wirelessSerial = e.serial } else { d.usbSerial = e.serial }
+            if byID[id] == nil { order.append(id) }
+            byID[id] = d
+        }
+        return order.compactMap { byID[$0] }
     }
 
     private func connect(adb: String, serial: String) throws {
@@ -161,26 +234,30 @@ final class DeviceLink {
 
     // MARK: - Helpers
 
-    private func firstDevice(_ adb: String) -> String? {
-        guard let out = try? run(adb, ["devices"]) else { return nil }
-        for line in out.split(separator: "\n").dropFirst() {
-            let parts = line.split(whereSeparator: { $0 == "\t" || $0 == " " })
-            if parts.count >= 2, parts[1] == "device" { return String(parts[0]) }
-        }
-        return nil
-    }
-
     @discardableResult
-    private func run(_ tool: String, _ args: [String]) throws -> String {
+    private func run(_ tool: String, _ args: [String], timeout: TimeInterval = 60) throws -> String {
         let p = Process()
         p.executableURL = URL(fileURLWithPath: tool)
         p.arguments = args
         let out = Pipe()
         p.standardOutput = out
         p.standardError = out
+        let done = DispatchSemaphore(value: 0)
+        p.terminationHandler = { _ in done.signal() }
         try p.run()
-        let data = out.fileHandleForReading.readDataToEndOfFile()
-        p.waitUntilExit()
+        var data = Data()
+        let reader = DispatchQueue.global()
+        let readDone = DispatchSemaphore(value: 0)
+        reader.async {
+            data = out.fileHandleForReading.readDataToEndOfFile()
+            readDone.signal()
+        }
+        if done.wait(timeout: .now() + timeout) == .timedOut {
+            p.terminate()
+            _ = done.wait(timeout: .now() + 1)
+            throw LinkError("adb \(args.joined(separator: " ")): timed out")
+        }
+        _ = readDone.wait(timeout: .now() + 2)
         let text = String(decoding: data, as: UTF8.self)
         guard p.terminationStatus == 0 else { throw LinkError("adb \(args.joined(separator: " ")): \(text)") }
         return text

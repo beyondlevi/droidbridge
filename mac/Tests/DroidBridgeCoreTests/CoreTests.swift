@@ -161,6 +161,31 @@ final class DeviceRectTests: XCTestCase {
         XCTAssertNil(EdgeGeometry.snap(device: CGRect(x: 5000, y: 100, width: 300, height: 300), displays: displays, reach: 24))
     }
 
+    func testReorientedKeepsTheTouchingSide() {
+        // Portrait, right of the MacBook: turning it keeps its left side on the MacBook's right edge.
+        let r = CGRect(x: 3840, y: 800, width: 300, height: 600)
+        let t = EdgeGeometry.reshaped(device: r, aspect: 2, displays: displays)
+        XCTAssertEqual(t, CGRect(x: 3840, y: 950, width: 600, height: 300))
+        XCTAssertNil(EdgeGeometry.reshaped(device: r, aspect: 0.5, displays: displays))
+    }
+
+    func testReorientedInTheCorner() {
+        // Right of the external display and above the MacBook: both sides stay.
+        let r = CGRect(x: 1920, y: 94, width: 530, height: 400)
+        let t = EdgeGeometry.reshaped(device: r, aspect: 0.75, displays: displays)
+        XCTAssertEqual(t, CGRect(x: 1920, y: -36, width: 397.5, height: 530))
+        XCTAssertEqual(EdgeGeometry.passages(device: t!, displays: displays).count, 2)
+    }
+
+    func testReshapedForANarrowerScreen() {
+        // A foldable switching from its inner screen (2448x1848) to the cover one (1248x1972).
+        let r = CGRect(x: 3840, y: 800, width: 400, height: 600)
+        let t = EdgeGeometry.reshaped(device: r, aspect: 1248.0 / 1972.0, displays: displays)
+        XCTAssertEqual(t?.minX, 3840)
+        XCTAssertEqual(t?.height ?? 0, 600, accuracy: 0.01)
+        XCTAssertEqual(t?.width ?? 0, 600 * 1248.0 / 1972.0, accuracy: 0.01)
+    }
+
     func testDefaultDevice() {
         let r = EdgeGeometry.defaultDevice(displays: displays, aspect: 0.5)
         XCTAssertEqual(r?.minX, 3840)
@@ -240,5 +265,26 @@ final class KeyboardTests: XCTestCase {
         XCTAssertEqual(k.report, [0x02, 0, 0x05, 0, 0, 0, 0, 0])
         for u: UInt8 in 10...16 { k.press(u) }
         XCTAssertEqual(k.pressed.count, 6)
+    }
+}
+
+final class AdbParsingTests: XCTestCase {
+    func testDevices() {
+        let out = """
+        List of devices attached
+        1901092548006978       device usb:1179648X product:glasses model:RG_glasses device:glasses transport_id:115
+        RQGL8028M4Z            device usb:17825792X product:h8qxxx model:SM_F971B device:h8q transport_id:114
+        10.50.2.9:46557        device product:h8qxxx model:SM_F971B device:h8q transport_id:116
+        ZY22                   unauthorized usb:1-2 transport_id:3
+
+        """
+        let d = AdbParsing.devices(out)
+        XCTAssertEqual(d.count, 4)
+        XCTAssertEqual(d[1].model, "SM F971B")
+        XCTAssertTrue(d[1].usb)
+        XCTAssertFalse(d[1].wireless)
+        XCTAssertTrue(d[2].wireless)
+        XCTAssertFalse(d[2].usb)
+        XCTAssertEqual(d[3].state, "unauthorized")
     }
 }

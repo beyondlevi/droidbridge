@@ -41,7 +41,7 @@ final class PointerProbe {
         }
     }
 
-    private static final Pattern FRAME = Pattern.compile("logicalFrame=\\[0, 0, (\\d+), (\\d+)\\]");
+    private static final Pattern FRAME = Pattern.compile("orientation=(\\d).*?logicalFrame=\\[0, 0, (\\d+), (\\d+)\\]");
 
     private final IBinder input;
     private int deviceId = -1;
@@ -82,13 +82,31 @@ final class PointerProbe {
         }
         int width = 0;
         int height = 0;
+        int rotation = 0;
         int cursor = dump.indexOf("MouseCursorController");
         Matcher frame = FRAME.matcher(dump);
         if (cursor >= 0 && frame.find(cursor) || frame.find(0)) {
-            width = Integer.parseInt(frame.group(1));
-            height = Integer.parseInt(frame.group(2));
+            rotation = Integer.parseInt(frame.group(1));
+            width = Integer.parseInt(frame.group(2));
+            height = Integer.parseInt(frame.group(3));
         }
-        return new Sample(Float.parseFloat(pointer.group(1)), Float.parseFloat(pointer.group(2)), width, height);
+        return toLogical(Float.parseFloat(pointer.group(1)), Float.parseFloat(pointer.group(2)), rotation, width, height);
+    }
+
+    /**
+     * The dispatcher reports pointers in the display's unrotated (physical) coordinates; the frame is
+     * the rotated (logical) one. Turns a physical position into a logical one.
+     */
+    static Sample toLogical(float px, float py, int rotation, int width, int height) {
+        // Physical size: the logical one, swapped when turned a quarter.
+        int pw = rotation % 2 == 0 ? width : height;
+        int ph = rotation % 2 == 0 ? height : width;
+        switch (rotation) {
+            case 1: return new Sample(py, pw - 1 - px, width, height);
+            case 2: return new Sample(pw - 1 - px, ph - 1 - py, width, height);
+            case 3: return new Sample(ph - 1 - py, px, width, height);
+            default: return new Sample(px, py, width, height);
+        }
     }
 
     private String dump() throws IOException {

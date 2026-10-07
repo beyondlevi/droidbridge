@@ -1,8 +1,8 @@
 "status.noAdb" = "adb não encontrado: instale o Android platform-tools";
 "status.waiting" = "Aguardando um Android (depuração USB)";
 "status.connecting" = "Conectando…";
-"status.connected" = "Conectado: %@";
-"status.onDevice" = "Controlando %@";
+"status.connected" = "Conectado por %2$@: %1$@";
+"status.onDevice" = "Controlando %1$@ (%2$@)";
 "status.failed" = "Não foi possível conectar: %@";
 "menu.grantAccessibility" = "Permitir acesso de Acessibilidade…";
 "menu.share" = "Compartilhar mouse e teclado";
@@ -31,3 +31,7 @@
 "passage.drop" = "Solte para encostar em %1$@: borda %2$@, de %3$d%% a %4$d%% da %5$@.";
 "passage.enters" = "O ponteiro entra no Android pelo lado que encosta no monitor, na posição correspondente.";
 "passage.dropNone" = "Longe dos monitores: soltando aqui, ele volta para onde estava.";
+"status.chooseDevice" = "Vários Androids conectados: escolha um em Aparelho";
+"transport.usb" = "USB";
+"transport.wifi" = "Wi-Fi";
+"menu.device" = "Aparelho";
