@@ -76,7 +76,7 @@ final class PointerProbe {
     Sample sample() throws IOException {
         String dump = dump();
         Matcher pointer = Pattern.compile("DeviceId\\(" + deviceId
-                + "\\):\\[[^\\]]*?hoveringPointers=\\[Pointer\\(id=\\d+, MOUSE\\) at \\(([-\\d.]+), ([-\\d.]+)\\)").matcher(dump);
+                + "\\):\\[.*?hoveringPointers=\\[Pointer\\(id=\\d+, MOUSE\\) at \\(([-\\d.]+), ([-\\d.]+)\\)").matcher(dump);
         if (!pointer.find()) {
             return null;
         }
