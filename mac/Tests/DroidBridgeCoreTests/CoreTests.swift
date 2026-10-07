@@ -242,3 +242,36 @@ final class KeyboardTests: XCTestCase {
         XCTAssertEqual(k.pressed.count, 6)
     }
 }
+
+final class AdbParsingTests: XCTestCase {
+    func testDevices() {
+        let out = """
+        List of devices attached
+        1901092548006978       device usb:1179648X product:glasses model:RG_glasses device:glasses transport_id:115
+        RQGL8028M4Z            device usb:17825792X product:h8qxxx model:SM_F971B device:h8q transport_id:114
+        10.50.2.9:46557        device product:h8qxxx model:SM_F971B device:h8q transport_id:116
+        ZY22                   unauthorized usb:1-2 transport_id:3
+
+        """
+        let d = AdbParsing.devices(out)
+        XCTAssertEqual(d.count, 4)
+        XCTAssertEqual(d[1].model, "SM F971B")
+        XCTAssertTrue(d[1].usb)
+        XCTAssertFalse(d[1].wireless)
+        XCTAssertTrue(d[2].wireless)
+        XCTAssertFalse(d[2].usb)
+        XCTAssertEqual(d[3].state, "unauthorized")
+    }
+
+    func testTlsPort() {
+        let on = "debugging_manager={\n adb_wifi={\n enabled=true\n network_ssid=\"x\"\n tls_port=46557\n }\n}"
+        XCTAssertEqual(AdbParsing.tlsPort(dumpsysAdb: on), 46557)
+        XCTAssertNil(AdbParsing.tlsPort(dumpsysAdb: "adb_wifi={\n enabled=false\n tls_port=0\n }"))
+        XCTAssertNil(AdbParsing.tlsPort(dumpsysAdb: "nothing"))
+    }
+
+    func testIPv4() {
+        XCTAssertEqual(AdbParsing.ipv4("27: wlan0: <UP>\n    inet 10.50.2.9/24 brd 10.50.2.255 scope global wlan0\n"), "10.50.2.9")
+        XCTAssertNil(AdbParsing.ipv4(""))
+    }
+}

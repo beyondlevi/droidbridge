@@ -145,6 +145,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         share.state = Settings.enabled ? .on : .off
         menu.addItem(share)
 
+        if link.devices.count > 1 || Settings.deviceSerial != nil {
+            let devices = NSMenuItem(title: L("menu.device"), action: nil, keyEquivalent: "")
+            let deviceMenu = NSMenu()
+            for d in link.devices {
+                let via = [d.usbSerial != nil ? L("transport.usb") : nil, d.wirelessSerial != nil ? L("transport.wifi") : nil]
+                    .compactMap { $0 }.joined(separator: " + ")
+                let i = item("\(d.model) (\(via))", #selector(chooseDevice(_:)))
+                i.representedObject = d.id
+                i.state = (Settings.deviceSerial ?? (link.devices.count == 1 ? d.id : nil)) == d.id ? .on : .off
+                deviceMenu.addItem(i)
+            }
+            devices.submenu = deviceMenu
+            menu.addItem(devices)
+        }
         menu.addItem(item(L("menu.arrange"), #selector(openArrangement)))
 
         let speed = NSMenuItem(title: L("menu.speed"), action: nil, keyEquivalent: "")
@@ -157,6 +171,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         speed.submenu = speedMenu
         menu.addItem(speed)
+
+        let wifi = item(L("menu.wifiFallback"), #selector(toggleWifi))
+        wifi.state = Settings.wifiFallback ? .on : .off
+        menu.addItem(wifi)
+        menu.addItem(item(L("menu.pairWifi"), #selector(pairWifi)))
 
         let cmd = item(L("menu.commandAsControl"), #selector(toggleCommand))
         cmd.state = Settings.commandAsControl ? .on : .off
@@ -177,7 +196,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         case .waiting: return L("status.waiting")
         case .connecting: return L("status.connecting")
         case let .connected(model, _, _):
-            return String(format: L(capture.isRemote ? "status.onDevice" : "status.connected"), model)
+            let key = capture.isRemote ? "status.onDevice" : "status.connected"
+            return String(format: L(key), model, L(link.transport == .usb ? "transport.usb" : "transport.wifi"))
+        case .chooseDevice: return L("status.chooseDevice")
         case let .failed(reason): return String(format: L("status.failed"), reason)
         }
     }
@@ -197,6 +218,57 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     @objc private func toggleShare() {
         Settings.enabled.toggle()
         if !Settings.enabled { capture.returnToMac() }
+    }
+
+    @objc private func chooseDevice(_ sender: NSMenuItem) {
+        guard let id = sender.representedObject as? String else { return }
+        capture.returnToMac()
+        link.select(id)
+    }
+
+    @objc private func toggleWifi() {
+        Settings.wifiFallback.toggle()
+    }
+
+    /// Pairs a device over Wi-Fi without a cable: the fields come from the device's
+    /// "Pair device with pairing code" screen and the "IP address & Port" line above it.
+    @objc private func pairWifi() {
+        let alert = NSAlert()
+        alert.messageText = L("pair.title")
+        alert.informativeText = L("pair.info")
+        let stack = NSStackView()
+        stack.orientation = .vertical
+        stack.alignment = .leading
+        stack.spacing = 6
+        func field(_ placeholder: String) -> NSTextField {
+            let f = NSTextField(frame: NSRect(x: 0, y: 0, width: 300, height: 24))
+            f.placeholderString = placeholder
+            f.widthAnchor.constraint(equalToConstant: 300).isActive = true
+            stack.addArrangedSubview(f)
+            return f
+        }
+        let pairAddress = field(L("pair.address"))
+        let code = field(L("pair.code"))
+        let connectAddress = field(L("pair.connectAddress"))
+        stack.frame = NSRect(x: 0, y: 0, width: 300, height: 84)
+        alert.accessoryView = stack
+        alert.addButton(withTitle: L("pair.button"))
+        alert.addButton(withTitle: L("pair.cancel"))
+        NSApp.activate(ignoringOtherApps: true)
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        link.pair(address: pairAddress.stringValue.trimmingCharacters(in: .whitespaces),
+                  code: code.stringValue.trimmingCharacters(in: .whitespaces),
+                  connectAddress: connectAddress.stringValue.trimmingCharacters(in: .whitespaces)) { result in
+            let done = NSAlert()
+            switch result {
+            case .success:
+                done.messageText = L("pair.ok")
+            case let .failure(error):
+                done.messageText = L("pair.failed")
+                done.informativeText = error.localizedDescription
+            }
+            done.runModal()
+        }
     }
 
     @objc private func openArrangement() {
