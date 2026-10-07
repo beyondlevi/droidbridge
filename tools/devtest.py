@@ -56,12 +56,13 @@ def main():
     jar, test = sys.argv[1], sys.argv[2]
     S = Server(jar)
     try:
-        if test in ("enter", "edge"):
-            for ratio in (0.25, 0.75):
-                t0 = time.time(); S.enter(LEFT, ratio); S.send(0x07)
-                t, _ = S.recv(5); print(f"enter left {ratio}: {time.time()-t0:.2f}s (pong={t==0x84})")
-                time.sleep(0.5)
-        if test == "edge":
+        if test.split(":")[0] in ("enter", "edge"):
+            side = {"left": LEFT, "right": RIGHT, "top": TOP, "bottom": BOTTOM}[test.split(":")[1] if ":" in test else "left"]
+            for ratio in (0.1, 0.5, 0.9, 0.25, 0.75):
+                t0 = time.time(); S.enter(side, ratio); S.send(0x07)
+                t, _ = S.recv(5); print(f"enter side {side} {ratio}: {time.time()-t0:.2f}s (pong={t==0x84})")
+                time.sleep(0.3)
+        if test.startswith("edge"):
             for _ in range(40): S.mouse(8, 0); time.sleep(0.008)    # into the screen
             t, p = S.recv(0.3); print("after moving in, unexpected:", t)
             t0 = time.time(); got = None
