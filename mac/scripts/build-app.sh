@@ -40,5 +40,10 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 </dict>
 </plist>
 PLIST
+# A stable identity keeps the Accessibility permission across rebuilds (ad-hoc signatures lose it).
+# scripts/create-signing-identity.sh makes one in its own keychain.
+if [[ -n "${SIGN_KEYCHAIN:-}" ]]; then
+  security unlock-keychain -p "$(cat "${SIGN_KEYCHAIN_PASSWORD_FILE:?}")" "$SIGN_KEYCHAIN"
+fi
 codesign --force --sign "$IDENTITY" --identifier dev.droidbridge.mac "$APP"
 echo "$APP"

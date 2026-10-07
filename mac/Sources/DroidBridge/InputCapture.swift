@@ -32,6 +32,7 @@ final class InputCapture {
     private var keyboard = KeyboardState()
     private var scrollAccumulator = CGVector.zero
     private let cursor = CursorVisibility()
+    private var loggedTapFailure = false
 
     /// Starts the event tap. Fails until the app has the Accessibility permission.
     @discardableResult
@@ -47,7 +48,10 @@ final class InputCapture {
                                               let capture = Unmanaged<InputCapture>.fromOpaque(info!).takeUnretainedValue()
                                               return capture.handle(type, event)
                                           }, userInfo: me) else {
-            log.error("event tap not created (Accessibility permission missing?)")
+            if !loggedTapFailure {
+                loggedTapFailure = true
+                log.error("event tap not created (Accessibility permission missing?)")
+            }
             return false
         }
         self.tap = tap
@@ -208,22 +212,35 @@ final class InputCapture {
 }
 
 /// Hides the cursor while the pointer is on the device. A background app can only hide the cursor
-/// after setting the window server property "SetsCursorInBackground" (the approach Synergy/Barrier use).
+/// after setting the window server property "SetsCursorInBackground" (what Synergy/Barrier do); as
+/// that alone does not hide it on recent macOS, the app also comes to the front while the pointer is
+/// away, hides its cursor there, and gives the focus back to the previous app on return.
 final class CursorVisibility {
+    private let log = Logger(subsystem: "dev.droidbridge", category: "cursor")
     private var hidden = false
     private var backgroundEnabled = false
+    private var previousApp: NSRunningApplication?
 
     func hide() {
         guard !hidden else { return }
-        enableBackgroundCursorControl()
-        CGDisplayHideCursor(CGMainDisplayID())
         hidden = true
+        enableBackgroundCursorControl()
+        previousApp = NSWorkspace.shared.frontmostApplication
+        NSApp.activate(ignoringOtherApps: true)
+        NSCursor.hide()
+        let err = CGDisplayHideCursor(CGMainDisplayID())
+        if err != .success { log.error("CGDisplayHideCursor: \(err.rawValue)") }
     }
 
     func show() {
         guard hidden else { return }
-        CGDisplayShowCursor(CGMainDisplayID())
         hidden = false
+        CGDisplayShowCursor(CGMainDisplayID())
+        NSCursor.unhide()
+        if let app = previousApp, app != NSRunningApplication.current {
+            app.activate()
+        }
+        previousApp = nil
     }
 
     private func enableBackgroundCursorControl() {
@@ -232,8 +249,12 @@ final class CursorVisibility {
         typealias DefaultConnection = @convention(c) () -> Int32
         typealias SetProperty = @convention(c) (Int32, Int32, CFString, CFTypeRef) -> Int32
         let handle = dlopen(nil, RTLD_NOW)
-        guard let c = dlsym(handle, "_CGSDefaultConnection"), let s = dlsym(handle, "CGSSetConnectionProperty") else { return }
+        guard let c = dlsym(handle, "_CGSDefaultConnection"), let s = dlsym(handle, "CGSSetConnectionProperty") else {
+            log.error("window server functions not found")
+            return
+        }
         let connection = unsafeBitCast(c, to: DefaultConnection.self)()
-        _ = unsafeBitCast(s, to: SetProperty.self)(connection, connection, "SetsCursorInBackground" as CFString, kCFBooleanTrue)
+        let r = unsafeBitCast(s, to: SetProperty.self)(connection, connection, "SetsCursorInBackground" as CFString, kCFBooleanTrue)
+        log.info("SetsCursorInBackground: \(r)")
     }
 }

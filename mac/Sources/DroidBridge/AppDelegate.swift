@@ -115,8 +115,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
         let speed = NSMenuItem(title: L("menu.speed"), action: nil, keyEquivalent: "")
         let speedMenu = NSMenu()
-        for (key, value) in [("speed.slow", 0.5), ("speed.normal", 1.0), ("speed.fast", 1.5), ("speed.faster", 2.0)] {
-            let i = item(L(key), #selector(chooseSpeed(_:)))
+        for value in [1.0, 2.0, 3.0, 4.0, 6.0] {
+            let i = item(String(format: L("speed.multiplier"), Int(value)), #selector(chooseSpeed(_:)))
             i.representedObject = value
             i.state = Settings.speed == value ? .on : .off
             speedMenu.addItem(i)

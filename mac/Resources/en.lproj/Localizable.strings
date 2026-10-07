@@ -12,10 +12,7 @@
 "placement.above" = "Above the Mac";
 "placement.below" = "Below the Mac";
 "menu.speed" = "Pointer speed on Android";
-"speed.slow" = "Slow";
-"speed.normal" = "Normal";
-"speed.fast" = "Fast";
-"speed.faster" = "Faster";
+"speed.multiplier" = "%d×";
 "menu.commandAsControl" = "Command acts as Ctrl";
 "menu.invertScroll" = "Invert scrolling on Android";
 "menu.hotkey" = "Back to the Mac: ⌃⌥⌘B";

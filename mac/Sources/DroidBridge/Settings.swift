@@ -16,7 +16,7 @@ struct Settings {
     }
 
     static var speed: Double {
-        get { d.object(forKey: "speed") as? Double ?? 1.0 }
+        get { d.object(forKey: "speed") as? Double ?? 3.0 }
         set { d.set(newValue, forKey: "speed") }
     }
 
