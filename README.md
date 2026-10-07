@@ -1,3 +1,5 @@
+<p align="center"><img src="assets/logo.png" alt="DroidBridge" width="480"></p>
+
 # DroidBridge
 
 Use your Mac's mouse and keyboard on an Android phone or tablet. Push the pointer past the edge
@@ -24,16 +26,17 @@ Status: early (0.1). USB only for now; Wi-Fi and file drag-and-drop are planned.
 1. Connect the device by USB and accept the debugging prompt on it.
 2. Open DroidBridge. It lives in the menu bar.
 3. Allow it in System Settings > Privacy & Security > Accessibility.
-4. In the menu, pick where the device sits: right, left, above or below the Mac.
-5. Push the pointer past that edge.
+4. In the menu, open **Arrange Screens…** and drag the Android device against the edge of a display.
+   The pointer passes only through the highlighted stretch; the size slider makes it longer or shorter.
+5. Push the pointer through that stretch.
 
 Back to the Mac: push the pointer against the device edge facing the Mac, or press **⌃⌥⌘B**.
 
 By default Command acts as Ctrl on Android, so ⌘C / ⌘V / ⌘A work as expected (Control becomes Meta).
 Turn it off in the menu to keep Command as Meta.
 
-To type accents and symbols as on your Mac layout, set the same layout for the
-"droidbridge keyboard" in Android's Settings > Physical keyboard.
+The Android keyboard layout follows the Mac's (for example US International - PC becomes
+"English (US), International style"), so dead keys and accents type the same. This needs Android 15 or later.
 
 ## Build
 

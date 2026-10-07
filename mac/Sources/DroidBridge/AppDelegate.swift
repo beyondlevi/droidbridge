@@ -110,16 +110,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         capture.options.invertScroll = Settings.invertScroll
     }
 
+    private lazy var menuBarIcon: NSImage? = {
+        let image = Bundle.main.image(forResource: "MenuBarIcon")
+        image?.isTemplate = true
+        image?.size = NSSize(width: 18, height: 18)
+        return image
+    }()
+
+    /// The bridge glyph; dimmed while no device is connected.
     private func updateIcon() {
-        let name: String
-        if capture.isRemote {
-            name = "iphone.and.arrow.forward"
-        } else if case .connected = link.state {
-            name = "keyboard"
+        statusItem.button?.image = menuBarIcon ?? NSImage(systemSymbolName: "keyboard", accessibilityDescription: "DroidBridge")
+        if case .connected = link.state {
+            statusItem.button?.appearsDisabled = false
         } else {
-            name = "keyboard.badge.ellipsis"
+            statusItem.button?.appearsDisabled = true
         }
-        statusItem.button?.image = NSImage(systemSymbolName: name, accessibilityDescription: "DroidBridge")
+        statusItem.button?.toolTip = statusText()
     }
 
     // MARK: - Menu
