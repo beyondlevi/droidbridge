@@ -1,0 +1,239 @@
+import AppKit
+import CoreGraphics
+import DroidBridgeCore
+import os
+
+/// Watches global mouse and keyboard events. While the pointer is "on Android", it swallows them and
+/// forwards them to the device instead.
+final class InputCapture {
+    struct Options {
+        var placement: Placement = .right
+        var speed: Double = 1.0
+        var commandAsControl = true
+        var invertScroll = false
+    }
+
+    var options = Options()
+    /// Sends a frame to the device.
+    var send: ((Data) -> Void)?
+    /// Called when control moves to the device (true) or back to the Mac (false).
+    var onRemoteChanged: ((Bool) -> Void)?
+    /// Whether crossing to the device is allowed (a device is connected and sharing is on).
+    var canCross: () -> Bool = { false }
+
+    private(set) var isRemote = false
+    private let log = Logger(subsystem: "dev.droidbridge", category: "input")
+    private var tap: CFMachPort?
+    private var source: CFRunLoopSource?
+    private var crossedDisplay: CGRect = .zero
+    /// After coming back, the cursor must move away from the edge before it can cross again.
+    private var armed = true
+    private var buttons: UInt8 = 0
+    private var keyboard = KeyboardState()
+    private var scrollAccumulator = CGVector.zero
+    private let cursor = CursorVisibility()
+
+    /// Starts the event tap. Fails until the app has the Accessibility permission.
+    @discardableResult
+    func start() -> Bool {
+        guard tap == nil else { return true }
+        let types: [CGEventType] = [.mouseMoved, .leftMouseDown, .leftMouseUp, .leftMouseDragged, .rightMouseDown,
+                                    .rightMouseUp, .rightMouseDragged, .otherMouseDown, .otherMouseUp,
+                                    .otherMouseDragged, .scrollWheel, .keyDown, .keyUp, .flagsChanged]
+        let mask = types.reduce(CGEventMask(0)) { $0 | (CGEventMask(1) << $1.rawValue) }
+        let me = Unmanaged.passUnretained(self).toOpaque()
+        guard let tap = CGEvent.tapCreate(tap: .cgSessionEventTap, place: .headInsertEventTap, options: .defaultTap,
+                                          eventsOfInterest: mask, callback: { _, type, event, info in
+                                              let capture = Unmanaged<InputCapture>.fromOpaque(info!).takeUnretainedValue()
+                                              return capture.handle(type, event)
+                                          }, userInfo: me) else {
+            log.error("event tap not created (Accessibility permission missing?)")
+            return false
+        }
+        self.tap = tap
+        source = CFMachPortCreateRunLoopSource(nil, tap, 0)
+        CFRunLoopAddSource(CFRunLoopGetMain(), source, .commonModes)
+        CGEvent.tapEnable(tap: tap, enable: true)
+        log.info("event tap started")
+        return true
+    }
+
+    /// Brings control back to the Mac, e.g. when the device disconnects or with the hotkey.
+    func returnToMac(ratio: Double? = nil) {
+        guard isRemote else { return }
+        isRemote = false
+        send?(Wire.leave())
+        keyboard.reset()
+        buttons = 0
+        let r = ratio ?? 0.5
+        let p = EdgeGeometry.returnPoint(display: crossedDisplay, ratio: r, placement: options.placement)
+        CGWarpMouseCursorPosition(p)
+        CGAssociateMouseAndMouseCursorPosition(1)
+        cursor.show()
+        armed = false
+        log.info("back on the Mac at \(p.x), \(p.y)")
+        onRemoteChanged?(false)
+    }
+
+    // MARK: - Event handling
+
+    private func handle(_ type: CGEventType, _ event: CGEvent) -> Unmanaged<CGEvent>? {
+        if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
+            if let tap { CGEvent.tapEnable(tap: tap, enable: true) }
+            return Unmanaged.passUnretained(event)
+        }
+        if isRemote {
+            forward(type, event)
+            return nil
+        }
+        if type == .mouseMoved {
+            checkCrossing(event)
+        }
+        return Unmanaged.passUnretained(event)
+    }
+
+    private func checkCrossing(_ event: CGEvent) {
+        let p = event.location
+        let delta = CGVector(dx: event.getDoubleValueField(.mouseEventDeltaX), dy: event.getDoubleValueField(.mouseEventDeltaY))
+        let displays = Self.displays()
+        if !armed {
+            if let d = displays.first(where: { $0.contains(p) }),
+               EdgeGeometry.isClear(of: d, at: p, placement: options.placement) || d != crossedDisplay {
+                armed = true
+            }
+            return
+        }
+        guard canCross(), let c = EdgeGeometry.crossing(at: p, delta: delta, placement: options.placement, displays: displays) else {
+            return
+        }
+        isRemote = true
+        crossedDisplay = c.display
+        CGAssociateMouseAndMouseCursorPosition(0)
+        cursor.hide()
+        send?(Wire.enter(side: options.placement.androidSide, ratio: c.ratio))
+        log.info("to Android, ratio \(c.ratio)")
+        onRemoteChanged?(true)
+    }
+
+    private func forward(_ type: CGEventType, _ event: CGEvent) {
+        switch type {
+        case .mouseMoved, .leftMouseDragged, .rightMouseDragged, .otherMouseDragged:
+            let dx = Int((event.getDoubleValueField(.mouseEventDeltaX) * options.speed).rounded())
+            let dy = Int((event.getDoubleValueField(.mouseEventDeltaY) * options.speed).rounded())
+            if dx != 0 || dy != 0 { send?(Wire.mouse(buttons: buttons, dx: dx, dy: dy)) }
+        case .leftMouseDown, .leftMouseUp, .rightMouseDown, .rightMouseUp, .otherMouseDown, .otherMouseUp:
+            let number = event.getIntegerValueField(.mouseEventButtonNumber)
+            // HID bits: 0 left, 1 right, 2 middle, 3 back, 4 forward. macOS numbers: 0 left, 1 right, 2 middle, 3 back, 4 forward.
+            guard number >= 0, number < 5 else { return }
+            let bit = UInt8(1) << UInt8(number)
+            let down = type == .leftMouseDown || type == .rightMouseDown || type == .otherMouseDown
+            buttons = down ? buttons | bit : buttons & ~bit
+            send?(Wire.mouse(buttons: buttons, dx: 0, dy: 0))
+        case .scrollWheel:
+            scroll(event)
+        case .keyDown, .keyUp:
+            key(type, event)
+        case .flagsChanged:
+            flags(event)
+        default:
+            break
+        }
+    }
+
+    private func scroll(_ event: CGEvent) {
+        let sign: Double = options.invertScroll ? -1 : 1
+        var wheel = 0
+        var hwheel = 0
+        if event.getIntegerValueField(.scrollWheelEventIsContinuous) != 0 {
+            // Trackpad / Magic Mouse: pixels. About 24 px per wheel notch.
+            scrollAccumulator.dy += event.getDoubleValueField(.scrollWheelEventPointDeltaAxis1) * sign
+            scrollAccumulator.dx += event.getDoubleValueField(.scrollWheelEventPointDeltaAxis2) * sign
+            wheel = Int(scrollAccumulator.dy / 24)
+            hwheel = Int(scrollAccumulator.dx / 24)
+            scrollAccumulator.dy -= Double(wheel) * 24
+            scrollAccumulator.dx -= Double(hwheel) * 24
+        } else {
+            wheel = Int(Double(event.getIntegerValueField(.scrollWheelEventDeltaAxis1)) * sign)
+            hwheel = Int(Double(event.getIntegerValueField(.scrollWheelEventDeltaAxis2)) * sign)
+        }
+        // HID AC Pan is positive to the right; macOS axis 2 is positive to the left.
+        if wheel != 0 || hwheel != 0 { send?(Wire.mouse(buttons: buttons, dx: 0, dy: 0, wheel: wheel, hwheel: -hwheel)) }
+    }
+
+    private func key(_ type: CGEventType, _ event: CGEvent) {
+        let code = UInt16(event.getIntegerValueField(.keyboardEventKeycode))
+        if type == .keyDown, isReturnHotkey(code, event.flags) {
+            returnToMac()
+            return
+        }
+        guard let usage = KeyMap.usage(forKeyCode: code) else { return }
+        var changed = keyboard.setModifiers(HIDModifiers.from(flags: event.flags, commandAsControl: options.commandAsControl))
+        if type == .keyDown {
+            // Android repeats held keys itself; ignore macOS autorepeat.
+            if event.getIntegerValueField(.keyboardEventAutorepeat) != 0 { return }
+            changed = keyboard.press(usage) || changed
+        } else {
+            changed = keyboard.release(usage) || changed
+        }
+        if changed { send?(Wire.keys(keyboard.report)) }
+    }
+
+    private func flags(_ event: CGEvent) {
+        let code = UInt16(event.getIntegerValueField(.keyboardEventKeycode))
+        if code == KeyMap.capsLockKeyCode {
+            // Caps Lock arrives as a flag change; tap it on the device.
+            keyboard.press(KeyMap.capsLockUsage)
+            send?(Wire.keys(keyboard.report))
+            keyboard.release(KeyMap.capsLockUsage)
+            send?(Wire.keys(keyboard.report))
+            return
+        }
+        if keyboard.setModifiers(HIDModifiers.from(flags: event.flags, commandAsControl: options.commandAsControl)) {
+            send?(Wire.keys(keyboard.report))
+        }
+    }
+
+    /// Control + Option + Command + B brings the pointer back to the Mac.
+    private func isReturnHotkey(_ code: UInt16, _ flags: CGEventFlags) -> Bool {
+        code == 0x0B && flags.contains([.maskControl, .maskAlternate, .maskCommand])
+    }
+
+    static func displays() -> [CGRect] {
+        var count: UInt32 = 0
+        CGGetActiveDisplayList(0, nil, &count)
+        var ids = [CGDirectDisplayID](repeating: 0, count: Int(count))
+        CGGetActiveDisplayList(count, &ids, &count)
+        return ids.prefix(Int(count)).map { CGDisplayBounds($0) }
+    }
+}
+
+/// Hides the cursor while the pointer is on the device. A background app can only hide the cursor
+/// after setting the window server property "SetsCursorInBackground" (the approach Synergy/Barrier use).
+final class CursorVisibility {
+    private var hidden = false
+    private var backgroundEnabled = false
+
+    func hide() {
+        guard !hidden else { return }
+        enableBackgroundCursorControl()
+        CGDisplayHideCursor(CGMainDisplayID())
+        hidden = true
+    }
+
+    func show() {
+        guard hidden else { return }
+        CGDisplayShowCursor(CGMainDisplayID())
+        hidden = false
+    }
+
+    private func enableBackgroundCursorControl() {
+        guard !backgroundEnabled else { return }
+        backgroundEnabled = true
+        typealias DefaultConnection = @convention(c) () -> Int32
+        typealias SetProperty = @convention(c) (Int32, Int32, CFString, CFTypeRef) -> Int32
+        let handle = dlopen(nil, RTLD_NOW)
+        guard let c = dlsym(handle, "_CGSDefaultConnection"), let s = dlsym(handle, "CGSSetConnectionProperty") else { return }
+        let connection = unsafeBitCast(c, to: DefaultConnection.self)()
+        _ = unsafeBitCast(s, to: SetProperty.self)(connection, connection, "SetsCursorInBackground" as CFString, kCFBooleanTrue)
+    }
+}
