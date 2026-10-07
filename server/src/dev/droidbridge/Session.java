@@ -124,6 +124,9 @@ final class Session {
             case Protocol.CLIPBOARD:
                 setDeviceClipboard(new String(p, StandardCharsets.UTF_8));
                 break;
+            case Protocol.LAYOUT:
+                KeyboardLayouts.apply(KEYBOARD_NAME, new String(p, StandardCharsets.UTF_8));
+                break;
             case Protocol.PING:
                 send(Protocol.PONG, new byte[0]);
                 break;

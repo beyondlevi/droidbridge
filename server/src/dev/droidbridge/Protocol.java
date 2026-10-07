@@ -15,6 +15,7 @@ public final class Protocol {
     public static final int KEYS = 0x05;       // 8-byte HID boot keyboard report
     public static final int CLIPBOARD = 0x06;  // utf-8 text
     public static final int PING = 0x07;       // empty
+    public static final int LAYOUT = 0x08;     // utf-8 Android keyboard layout name, e.g. "english_us_intl"
 
     // Android -> Mac
     public static final int DEVICE = 0x81;     // u16 protocol version, u16 width, u16 height, utf-8 model

@@ -71,6 +71,24 @@ def main():
                 if t == 0x82:
                     side, r = struct.unpack(">BH", p); got = (side, r / 65535); break
             print("edge:", got, f"after {time.time()-t0:.2f}s")
+        if test.startswith("type"):
+            # Types dead-key sequences with the given Android layout: devtest.py <jar> type:<layout>
+            layout = test.split(":", 1)[1] if ":" in test else "english_us_intl"
+            S.send(0x08, layout.encode()); time.sleep(0.8)
+            SHIFT = 0x02
+            def key(mods, usage):
+                S.send(0x05, bytes([mods, 0, usage, 0, 0, 0, 0, 0])); time.sleep(0.03)
+                S.send(0x05, bytes(8)); time.sleep(0.03)
+            A, C, E, O, U, SPACE, ENTER = 0x04, 0x06, 0x08, 0x12, 0x18, 0x2C, 0x28
+            QUOTE, GRAVE, SIX = 0x34, 0x35, 0x23
+            seqs = [("'a", [(0, QUOTE), (0, A)]), ("~a", [(SHIFT, GRAVE), (0, A)]), ("`a", [(0, GRAVE), (0, A)]),
+                    ("^e", [(SHIFT, SIX), (0, E)]), ('"u', [(SHIFT, QUOTE), (0, U)]), ("'c", [(0, QUOTE), (0, C)]),
+                    ("~o", [(SHIFT, GRAVE), (0, O)]), ("' space", [(0, QUOTE), (0, SPACE)])]
+            for name, keys in seqs:
+                for k in keys: key(*k)
+                key(0, SPACE)
+            key(0, ENTER)
+            print("typed:", " | ".join(n for n, _ in seqs))
         if test == "clipboard":
             S.send(0x06, "droidbridge mac->android ção".encode())
             time.sleep(0.5)
