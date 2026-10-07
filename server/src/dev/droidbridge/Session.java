@@ -40,8 +40,10 @@ final class Session {
     private final ClipboardManager clipboard;
     private final ExecutorService prober = Executors.newSingleThreadExecutor();
 
-    private volatile int returnSide = Protocol.SIDE_NONE;
-    private volatile boolean atEdge;
+    /** Stretches of the device edges that lead back to the Mac: {side, start, end}; null = none. */
+    private volatile float[][] returns;
+    /** The side the pointer is touching inside a return stretch, or SIDE_NONE. */
+    private volatile int edgeSide = Protocol.SIDE_NONE;
     private volatile float edgeRatio;
     private volatile boolean probing;
     private volatile long lastProbe;
@@ -113,10 +115,10 @@ final class Session {
                 }
                 break;
             case Protocol.ENTER:
-                enter(p[0], (((p[1] & 0xFF) << 8) | (p[2] & 0xFF)) / 65535f);
+                enter(p[0], u16(p, 1) / 65535f, parseReturns(p));
                 break;
             case Protocol.LEAVE:
-                returnSide = Protocol.SIDE_NONE;
+                returns = null;
                 buttons = 0;
                 mouse.input(new byte[5]);
                 keyboard.input(new byte[8]);
@@ -133,6 +135,24 @@ final class Session {
             default:
                 Log.w("unknown message type " + type);
         }
+    }
+
+    private static int u16(byte[] p, int i) {
+        return ((p[i] & 0xFF) << 8) | (p[i + 1] & 0xFF);
+    }
+
+    /** ENTER: u8 side, u16 ratio, then (protocol 1.1) u8 count and count x {u8 side, u16 start, u16 end}. */
+    private static float[][] parseReturns(byte[] p) {
+        if (p.length < 4) {
+            return new float[][] {{p[0], 0, 1}};
+        }
+        int count = p[3] & 0xFF;
+        float[][] out = new float[count][];
+        for (int i = 0; i < count && 4 + i * 5 + 5 <= p.length; i++) {
+            int o = 4 + i * 5;
+            out[i] = new float[] {p[o], u16(p, o + 1) / 65535f, u16(p, o + 3) / 65535f};
+        }
+        return out;
     }
 
     /** Sends a relative move as UHID reports, each axis limited to -127..127 per report. */
@@ -156,9 +176,9 @@ final class Session {
      * Puts the pointer on the entry edge at the given ratio. The mouse is relative and Android
      * accelerates it, so: push into the corner, then walk along the edge and measure.
      */
-    private void enter(int side, float ratio) throws IOException {
-        Log.i("enter side=" + side + " ratio=" + ratio);
-        returnSide = Protocol.SIDE_NONE;
+    private void enter(int side, float ratio, float[][] spans) throws IOException {
+        Log.i("enter side=" + side + " ratio=" + ratio + " returns=" + spans.length);
+        returns = null;
         boolean horizontalEdge = side == Protocol.SIDE_TOP || side == Protocol.SIDE_BOTTOM;
         int intoX = side == Protocol.SIDE_RIGHT ? 1 : -1;
         int intoY = side == Protocol.SIDE_BOTTOM ? 1 : -1;
@@ -193,11 +213,11 @@ final class Session {
             }
             Log.i("entered at " + s + ", target " + target);
         }
-        atEdge = true;
+        edgeSide = side;
         edgeRatio = ratio;
         pushed = 0;
         edgeSent = false;
-        returnSide = side;
+        returns = spans;
     }
 
     /** Moves along one axis in small steps, so acceleration stays predictable. */
@@ -211,36 +231,45 @@ final class Session {
         }
     }
 
-    /** Watches for the pointer being pushed against the edge that leads back to the Mac. */
+    private static int toward(int side, int dx, int dy) {
+        switch (side) {
+            case Protocol.SIDE_LEFT: return -dx;
+            case Protocol.SIDE_RIGHT: return dx;
+            case Protocol.SIDE_TOP: return -dy;
+            default: return dy;
+        }
+    }
+
+    /** Watches for the pointer being pushed out through a stretch of edge that leads back to the Mac. */
     private void onMotion(int dx, int dy) throws IOException {
-        int side = returnSide;
-        if (side == Protocol.SIDE_NONE || buttons != 0) {
+        float[][] spans = returns;
+        if (spans == null || spans.length == 0 || buttons != 0) {
             return;
         }
-        int toward;
-        switch (side) {
-            case Protocol.SIDE_LEFT: toward = -dx; break;
-            case Protocol.SIDE_RIGHT: toward = dx; break;
-            case Protocol.SIDE_TOP: toward = -dy; break;
-            default: toward = dy; break;
+        boolean anyToward = false;
+        for (float[] span : spans) {
+            if (span != null && toward((int) span[0], dx, dy) > 0) {
+                anyToward = true;
+            }
         }
-        if (toward <= 0) {
+        if (!anyToward) {
             if (dx != 0 || dy != 0) {
-                atEdge = false;
+                edgeSide = Protocol.SIDE_NONE;
                 pushed = 0;
             }
             return;
         }
-        if (atEdge) {
-            pushed += toward;
+        int side = edgeSide;
+        if (side != Protocol.SIDE_NONE && toward(side, dx, dy) > 0) {
+            pushed += toward(side, dx, dy);
             if (pushed >= PUSH_TO_LEAVE && !edgeSent) {
                 edgeSent = true;
                 int r = Math.round(Math.max(0, Math.min(1, edgeRatio)) * 65535);
                 send(Protocol.EDGE, new byte[] {(byte) side, (byte) (r >> 8), (byte) r});
-                Log.i("edge reached, back to the Mac (ratio " + edgeRatio + ")");
+                Log.i("edge reached on side " + side + ", back to the Mac (ratio " + edgeRatio + ")");
             }
-            // Keep confirming while pushing: the pointer may have slid along the edge.
         }
+        // Keep probing while pushing: the pointer may have slid along the edge or out of the stretch.
         long now = System.currentTimeMillis();
         if (!probing && now - lastProbe >= PROBE_INTERVAL_MS) {
             probing = true;
@@ -249,16 +278,32 @@ final class Session {
                 try {
                     PointerProbe.Sample s = probe.sample();
                     if (s != null && s.width > 0) {
-                        boolean touching;
-                        float ratio;
-                        switch (side) {
-                            case Protocol.SIDE_LEFT: touching = s.x <= EDGE_SLOP; ratio = s.y / (s.height - 1); break;
-                            case Protocol.SIDE_RIGHT: touching = s.x >= s.width - 1 - EDGE_SLOP; ratio = s.y / (s.height - 1); break;
-                            case Protocol.SIDE_TOP: touching = s.y <= EDGE_SLOP; ratio = s.x / (s.width - 1); break;
-                            default: touching = s.y >= s.height - 1 - EDGE_SLOP; ratio = s.x / (s.width - 1); break;
+                        int found = Protocol.SIDE_NONE;
+                        float foundRatio = 0;
+                        for (float[] span : spans) {
+                            if (span == null) {
+                                continue;
+                            }
+                            int sd = (int) span[0];
+                            boolean touching;
+                            float ratio;
+                            switch (sd) {
+                                case Protocol.SIDE_LEFT: touching = s.x <= EDGE_SLOP; ratio = s.y / (s.height - 1); break;
+                                case Protocol.SIDE_RIGHT: touching = s.x >= s.width - 1 - EDGE_SLOP; ratio = s.y / (s.height - 1); break;
+                                case Protocol.SIDE_TOP: touching = s.y <= EDGE_SLOP; ratio = s.x / (s.width - 1); break;
+                                default: touching = s.y >= s.height - 1 - EDGE_SLOP; ratio = s.x / (s.width - 1); break;
+                            }
+                            if (touching && ratio >= span[1] - 0.01f && ratio <= span[2] + 0.01f) {
+                                found = sd;
+                                foundRatio = ratio;
+                                break;
+                            }
                         }
-                        edgeRatio = ratio;
-                        atEdge = touching;
+                        if (found != edgeSide) {
+                            pushed = 0;
+                        }
+                        edgeRatio = foundRatio;
+                        edgeSide = found;
                     }
                 } catch (IOException e) {
                     Log.w("probe: " + e.getMessage());

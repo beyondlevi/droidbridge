@@ -9,7 +9,7 @@ public final class Protocol {
 
     // Mac -> Android
     public static final int HELLO = 0x01;      // u16 protocol version
-    public static final int ENTER = 0x02;      // u8 side, u16 ratio along the edge (0..65535)
+    public static final int ENTER = 0x02;      // u8 side, u16 ratio, u8 n, n x {u8 side, u16 start, u16 end}
     public static final int LEAVE = 0x03;      // empty
     public static final int MOUSE = 0x04;      // u8 buttons, i16 dx, i16 dy, i8 wheel, i8 hwheel
     public static final int KEYS = 0x05;       // 8-byte HID boot keyboard report

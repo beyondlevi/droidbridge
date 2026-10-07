@@ -9,7 +9,9 @@ final class WireTests: XCTestCase {
     }
 
     func testEnterFrame() {
-        XCTAssertEqual([UInt8](Wire.enter(side: .left, ratio: 1)), [0x02, 0, 0, 0, 3, 0, 0xFF, 0xFF])
+        XCTAssertEqual([UInt8](Wire.enter(side: .left, ratio: 1)), [0x02, 0, 0, 0, 4, 0, 0xFF, 0xFF, 0])
+        XCTAssertEqual([UInt8](Wire.enter(side: .left, ratio: 0, returns: [(side: .bottom, start: 0, end: 1)])),
+                       [0x02, 0, 0, 0, 9, 0, 0, 0, 1, 3, 0, 0, 0xFF, 0xFF])
     }
 
     func testReaderSplitsAndJoins() throws {
@@ -110,6 +112,86 @@ final class EdgeTests: XCTestCase {
     func testAndroidSides() {
         XCTAssertEqual(Edge.right.androidSide, .left)
         XCTAssertEqual(Edge.bottom.androidSide, .top)
+    }
+}
+
+final class DeviceRectTests: XCTestCase {
+    let external = CGRect(x: 0, y: 0, width: 1920, height: 1080)
+    let builtin = CGRect(x: 1920, y: 494, width: 1920, height: 1243)
+    var displays: [CGRect] { [external, builtin] }
+
+    func testCornerTouchesBothDisplays() {
+        // In the corner right of the external display and above the MacBook.
+        let r = CGRect(x: 1920, y: 94, width: 530, height: 400)
+        let ps = EdgeGeometry.passages(device: r, displays: displays)
+        XCTAssertEqual(ps.count, 2)
+        let right = ps.first { $0.edge == .right }
+        XCTAssertEqual(right?.display, external)
+        XCTAssertEqual(right?.start ?? -1, 94.0 / 1080, accuracy: 0.001)
+        XCTAssertEqual(right?.end ?? -1, 494.0 / 1080, accuracy: 0.001)
+        XCTAssertEqual(right?.deviceStart ?? -1, 0, accuracy: 0.001)
+        XCTAssertEqual(right?.deviceEnd ?? -1, 1, accuracy: 0.001)
+        let top = ps.first { $0.edge == .top }
+        XCTAssertEqual(top?.display, builtin)
+        XCTAssertEqual(top?.end ?? -1, 530.0 / 1920, accuracy: 0.001)
+        XCTAssertEqual(top?.edge.androidSide, .bottom)
+    }
+
+    func testPartialPassageMapsToDevicePart() {
+        // Taller than the free stretch: only its lower part touches the MacBook's right edge.
+        let r = CGRect(x: 3840, y: 1437, width: 300, height: 600)
+        let ps = EdgeGeometry.passages(device: r, displays: displays)
+        XCTAssertEqual(ps.count, 1)
+        XCTAssertEqual(ps[0].deviceStart, 0, accuracy: 0.001)
+        XCTAssertEqual(ps[0].deviceEnd, 0.5, accuracy: 0.001)
+        let ratio = EdgeGeometry.crossing(at: CGPoint(x: 3839.5, y: 1587), delta: CGVector(dx: 1, dy: 0), passage: ps[0], displays: displays)
+        XCTAssertEqual(ratio ?? -1, 0.25, accuracy: 0.001)
+        let back = EdgeGeometry.returnPoint(passage: ps[0], androidRatio: 0.25)
+        XCTAssertEqual(back.y, 1587, accuracy: 0.5)
+    }
+
+    func testSnapIntoCorner() {
+        let ghost = CGRect(x: 1930, y: 80, width: 530, height: 400)
+        let r = EdgeGeometry.snap(device: ghost, displays: displays, reach: 24)
+        XCTAssertEqual(r, CGRect(x: 1920, y: 94, width: 530, height: 400))
+    }
+
+    func testSnapRejectsOverlapAndFarAway() {
+        XCTAssertNil(EdgeGeometry.snap(device: CGRect(x: 100, y: 100, width: 300, height: 300), displays: displays, reach: 24))
+        XCTAssertNil(EdgeGeometry.snap(device: CGRect(x: 5000, y: 100, width: 300, height: 300), displays: displays, reach: 24))
+    }
+
+    func testDefaultDevice() {
+        let r = EdgeGeometry.defaultDevice(displays: displays, aspect: 0.5)
+        XCTAssertEqual(r?.minX, 3840)
+        XCTAssertEqual(r?.height ?? 0, 0.6 * 1243, accuracy: 0.01)
+        XCTAssertEqual(EdgeGeometry.passages(device: r!, displays: displays).count, 1)
+    }
+}
+
+final class CedillaTests: XCTestCase {
+    func testQuoteCBecomesCedilla() {
+        var f = CedillaFix()
+        f.enabled = true
+        XCTAssertEqual(f.keyDown(0x34, modifiers: []), [])
+        XCTAssertEqual(f.keyUp(0x34), [])
+        XCTAssertEqual(f.keyDown(0x06, modifiers: []), [.tap(0x36, .rightAlt)])
+        XCTAssertEqual(f.keyUp(0x06), [])
+        XCTAssertEqual(f.keyDown(0x34, modifiers: []), [])
+        XCTAssertEqual(f.keyDown(0x06, modifiers: .leftShift), [.tap(0x36, [.leftShift, .rightAlt])])
+    }
+
+    func testOtherKeysKeepTheDeadKey() {
+        var f = CedillaFix()
+        f.enabled = true
+        _ = f.keyDown(0x34, modifiers: [])
+        XCTAssertEqual(f.keyDown(0x04, modifiers: []), [.tap(0x34, []), .press(0x04)])
+        XCTAssertEqual(f.keyUp(0x04), [.release(0x04)])
+    }
+
+    func testDisabled() {
+        var f = CedillaFix()
+        XCTAssertEqual(f.keyDown(0x34, modifiers: []), [.press(0x34)])
     }
 }
 

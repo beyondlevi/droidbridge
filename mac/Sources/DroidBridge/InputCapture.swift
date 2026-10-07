@@ -19,14 +19,17 @@ final class InputCapture {
     var onRemoteChanged: ((Bool) -> Void)?
     /// Whether crossing to the device is allowed (a device is connected and sharing is on).
     var canCross: () -> Bool = { false }
-    /// The passage to the device for the current displays (see Arrangements).
-    var passage: () -> Passage? = { nil }
+    /// The passages to the device for the current displays (see Arrangements).
+    var passages: () -> [Passage] = { [] }
+    /// Fixes ' + c for layouts where Android composes it differently (see CedillaFix).
+    var cedilla = CedillaFix()
 
     private(set) var isRemote = false
     private let log = Logger(subsystem: "dev.droidbridge", category: "input")
     private var tap: CFMachPort?
     private var source: CFRunLoopSource?
     private var crossed: Passage?
+    private var activePassages: [Passage] = []
     /// After coming back, the cursor must move away from the edge before it can cross again.
     private var armed = true
     private var buttons: UInt8 = 0
@@ -64,13 +67,22 @@ final class InputCapture {
     }
 
     /// Brings control back to the Mac, e.g. when the device disconnects or with the hotkey.
-    func returnToMac(ratio: Double? = nil) {
+    func returnToMac(side: Side? = nil, ratio: Double? = nil) {
         guard isRemote else { return }
         isRemote = false
         send?(Wire.leave())
         keyboard.reset()
+        cedilla.reset()
         buttons = 0
-        if let passage = crossed {
+        // The passage leading out of that side of the device, at that position.
+        var passage = crossed
+        if let side, let ratio {
+            let candidates = activePassages.filter { $0.edge.androidSide == side }
+            passage = candidates.first { ratio >= $0.deviceStart - 0.01 && ratio <= $0.deviceEnd + 0.01 }
+                ?? candidates.min { abs(($0.deviceStart + $0.deviceEnd) / 2 - ratio) < abs(($1.deviceStart + $1.deviceEnd) / 2 - ratio) }
+                ?? crossed
+        }
+        if let passage {
             let p = EdgeGeometry.returnPoint(passage: passage, androidRatio: ratio ?? 0.5)
             CGWarpMouseCursorPosition(p)
             log.info("back on the Mac at \(p.x), \(p.y)")
@@ -109,15 +121,19 @@ final class InputCapture {
             }
             return
         }
-        guard canCross(), let passage = passage(),
-              let ratio = EdgeGeometry.crossing(at: p, delta: delta, passage: passage, displays: Self.displays()) else {
-            return
-        }
+        guard canCross() else { return }
+        let all = passages()
+        let displays = Self.displays()
+        guard let (passage, ratio) = all.lazy.compactMap({ ps in
+            EdgeGeometry.crossing(at: p, delta: delta, passage: ps, displays: displays).map { (ps, $0) }
+        }).first else { return }
         isRemote = true
         crossed = passage
+        activePassages = all
         CGAssociateMouseAndMouseCursorPosition(0)
         cursor.hide()
-        send?(Wire.enter(side: passage.edge.androidSide, ratio: ratio))
+        let returns = all.map { (side: $0.edge.androidSide, start: $0.deviceStart, end: $0.deviceEnd) }
+        send?(Wire.enter(side: passage.edge.androidSide, ratio: ratio, returns: returns))
         log.info("to Android, ratio \(ratio)")
         onRemoteChanged?(true)
     }
@@ -175,12 +191,25 @@ final class InputCapture {
         }
         guard let usage = KeyMap.usage(forKeyCode: code) else { return }
         var changed = keyboard.setModifiers(HIDModifiers.from(flags: event.flags, commandAsControl: options.commandAsControl))
+        let actions: [CedillaFix.Action]
         if type == .keyDown {
             // Android repeats held keys itself; ignore macOS autorepeat.
             if event.getIntegerValueField(.keyboardEventAutorepeat) != 0 { return }
-            changed = keyboard.press(usage) || changed
+            actions = cedilla.keyDown(usage, modifiers: keyboard.modifiers)
         } else {
-            changed = keyboard.release(usage) || changed
+            actions = cedilla.keyUp(usage)
+        }
+        for action in actions {
+            switch action {
+            case let .press(u):
+                changed = keyboard.press(u) || changed
+            case let .release(u):
+                changed = keyboard.release(u) || changed
+            case let .tap(u, mods):
+                send?(Wire.keys([mods.rawValue, 0, u, 0, 0, 0, 0, 0]))
+                send?(Wire.keys([mods.rawValue, 0, 0, 0, 0, 0, 0, 0]))
+                changed = true
+            }
         }
         if changed { send?(Wire.keys(keyboard.report)) }
     }

@@ -31,8 +31,12 @@ public enum Wire {
 
     public static func hello() -> Data { frame(.hello, be16(version)) }
 
-    public static func enter(side: Side, ratio: Double) -> Data {
-        frame(.enter, [side.rawValue] + be16(ratio16(ratio)))
+    /// Puts the pointer on `side` at `ratio`; `returns` are the stretches of the device edges that
+    /// lead back to the Mac.
+    public static func enter(side: Side, ratio: Double, returns: [(side: Side, start: Double, end: Double)] = []) -> Data {
+        var p = [side.rawValue] + be16(ratio16(ratio)) + [UInt8(min(returns.count, 255))]
+        for r in returns.prefix(255) { p += [r.side.rawValue] + be16(ratio16(r.start)) + be16(ratio16(r.end)) }
+        return frame(.enter, p)
     }
 
     public static func leave() -> Data { frame(.leave) }

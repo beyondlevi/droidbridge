@@ -14,7 +14,7 @@
 "menu.quit" = "Quit DroidBridge";
 "menu.arrange" = "Arrange Screens…";
 "arrangement.title" = "Arrange Screens";
-"arrangement.hint" = "Drag the Android device against an edge of a display. The pointer only passes through the highlighted stretch; along the rest of the edge it stops, as between displays of different sizes.";
+"arrangement.hint" = "Drag the Android device against one or two displays, as in System Settings > Displays. The pointer only passes through the highlighted stretches; along the rest of the edges it stops.";
 "arrangement.passage" = "Passage";
 "arrangement.size" = "Size of the Android device in the arrangement";
 "arrangement.sizeHint" = "Larger means a longer passage.";
@@ -29,4 +29,5 @@
 "axis.width" = "width";
 "passage.text" = "%1$@: %2$@ edge, from %3$d%% to %4$d%% of its %5$@.";
 "passage.drop" = "Drop to attach to %1$@: %2$@ edge, from %3$d%% to %4$d%% of its %5$@.";
-"passage.enters" = "The pointer enters through the Android device's %@ edge at the matching position.";
+"passage.enters" = "The pointer enters the Android device through the side that touches the display, at the matching position.";
+"passage.dropNone" = "Not touching any display: dropping it here puts it back where it was.";

@@ -29,17 +29,28 @@ struct DisplayInfo: Equatable, Identifiable {
 
 /// Resolves the saved arrangement against the displays connected now.
 enum Arrangements {
-    static func passage(for displays: [DisplayInfo]) -> Passage? {
-        if let a = Settings.arrangement, let d = displays.first(where: { $0.key == a.displayKey }) {
-            return Passage(display: d.bounds, edge: a.edge, start: a.start, end: a.end)
+    /// Device width / height while the size is unknown (a portrait phone).
+    static let defaultAspect: CGFloat = 1080.0 / 2340.0
+
+    /// The device rectangle in global points: the saved one when its anchor display is connected,
+    /// otherwise the default.
+    static func deviceRect(for displays: [DisplayInfo], aspect: CGFloat) -> CGRect? {
+        if let a = Settings.arrangement, let anchor = displays.first(where: { $0.key == a.anchorKey }) {
+            let r = a.rect(anchor: anchor.bounds)
+            if !EdgeGeometry.passages(device: r, displays: displays.map(\.bounds)).isEmpty { return r }
         }
-        return EdgeGeometry.defaultPassage(edge: Settings.legacyEdge, displays: displays.map(\.bounds))
+        return EdgeGeometry.defaultDevice(displays: displays.map(\.bounds), aspect: aspect)
     }
 
-    /// The arrangement shown in the window: the saved one, or the default turned into one.
-    static func current(for displays: [DisplayInfo]) -> Arrangement? {
-        if let a = Settings.arrangement, displays.contains(where: { $0.key == a.displayKey }) { return a }
-        guard let p = passage(for: displays), let d = displays.first(where: { $0.bounds == p.display }) else { return nil }
-        return Arrangement(displayKey: d.key, edge: p.edge, start: p.start, end: p.end, size: p.end - p.start)
+    static func passages(for displays: [DisplayInfo], aspect: CGFloat) -> [Passage] {
+        guard let r = deviceRect(for: displays, aspect: aspect) else { return [] }
+        return EdgeGeometry.passages(device: r, displays: displays.map(\.bounds))
+    }
+
+    /// Saves a device rectangle, anchored to the first display it touches.
+    static func save(_ r: CGRect, displays: [DisplayInfo]) {
+        let ps = EdgeGeometry.passages(device: r, displays: displays.map(\.bounds))
+        guard let first = ps.first, let anchor = displays.first(where: { $0.bounds == first.display }) else { return }
+        Settings.arrangement = Arrangement(anchorKey: anchor.key, rect: r, anchor: anchor.bounds)
     }
 }

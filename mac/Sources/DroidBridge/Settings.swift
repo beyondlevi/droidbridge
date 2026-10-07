@@ -10,25 +10,15 @@ struct Settings {
         set { d.set(newValue, forKey: "enabled") }
     }
 
-    /// Where the device sits; nil means the default (the outermost right edge).
+    /// Where the device sits; nil means the default (against the outermost right edge).
     static var arrangement: Arrangement? {
-        get { d.data(forKey: "arrangement").flatMap { try? JSONDecoder().decode(Arrangement.self, from: $0) } }
+        get { d.data(forKey: "deviceArrangement").flatMap { try? JSONDecoder().decode(Arrangement.self, from: $0) } }
         set {
             if let newValue, let data = try? JSONEncoder().encode(newValue) {
-                d.set(data, forKey: "arrangement")
+                d.set(data, forKey: "deviceArrangement")
             } else {
-                d.removeObject(forKey: "arrangement")
+                d.removeObject(forKey: "deviceArrangement")
             }
-        }
-    }
-
-    /// The side chosen in version 0.1 ("Android device position"), used until an arrangement is saved.
-    static var legacyEdge: Edge {
-        switch d.string(forKey: "placement") {
-        case "left": return .left
-        case "above": return .top
-        case "below": return .bottom
-        default: return .right
         }
     }
 

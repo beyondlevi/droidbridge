@@ -14,7 +14,7 @@
 "menu.quit" = "Sair do DroidBridge";
 "menu.arrange" = "Organizar telas…";
 "arrangement.title" = "Organizar telas";
-"arrangement.hint" = "Arraste o Android até encostar numa borda de um monitor. O ponteiro passa só pelo trecho destacado; no resto da borda ele para, como entre monitores de tamanhos diferentes.";
+"arrangement.hint" = "Arraste o Android até encostar em um ou dois monitores, como em Ajustes do Sistema > Monitores. O ponteiro passa só pelos trechos destacados; no resto das bordas ele para.";
 "arrangement.passage" = "Passagem";
 "arrangement.size" = "Tamanho do Android na organização";
 "arrangement.sizeHint" = "Maior = trecho de passagem mais longo.";
@@ -29,4 +29,5 @@
 "axis.width" = "largura";
 "passage.text" = "%1$@: borda %2$@, de %3$d%% a %4$d%% da %5$@.";
 "passage.drop" = "Solte para encostar em %1$@: borda %2$@, de %3$d%% a %4$d%% da %5$@.";
-"passage.enters" = "O ponteiro entra pela borda %@ do Android, na posição correspondente.";
+"passage.enters" = "O ponteiro entra no Android pelo lado que encosta no monitor, na posição correspondente.";
+"passage.dropNone" = "Longe dos monitores: soltando aqui, ele volta para onde estava.";

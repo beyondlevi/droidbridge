@@ -13,7 +13,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var statusItem: NSStatusItem!
     private var tapTimer: Timer?
     private let arrangementWindow = ArrangementWindowController()
-    private var passage: Passage?
+    private var passages: [Passage] = []
     private let log = Logger(subsystem: "dev.droidbridge", category: "app")
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -29,7 +29,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             return true
         }
         capture.onRemoteChanged = { [weak self] _ in self?.updateIcon() }
-        capture.passage = { [weak self] in self?.passage }
+        capture.passages = { [weak self] in self?.passages ?? [] }
         refreshPassage()
         arrangementWindow.model.onChange = { [weak self] in self?.refreshPassage() }
         NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification, object: nil,
@@ -51,6 +51,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 self.sendKeyboardLayout()
                 self.arrangementWindow.model.deviceName = model
                 self.arrangementWindow.model.deviceSize = CGSize(width: width, height: height)
+                self.refreshPassage()
             } else {
                 self.capture.returnToMac()
             }
@@ -58,7 +59,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         link.onMessage = { [weak self] message in
             switch message {
-            case let .edge(_, ratio): self?.capture.returnToMac(ratio: ratio)
+            case let .edge(side, ratio): self?.capture.returnToMac(side: side, ratio: ratio)
             case let .clipboard(text): self?.clipboard.receivedFromDevice(text)
             default: break
             }
@@ -77,7 +78,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     private func refreshPassage() {
-        passage = Arrangements.passage(for: DisplayInfo.all())
+        passages = Arrangements.passages(for: DisplayInfo.all(), aspect: arrangementWindow.model.aspect)
     }
 
     /// Makes the device's keyboard layout match the Mac's current one, so dead keys work the same.
@@ -86,7 +87,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
               let source = TISCopyCurrentKeyboardLayoutInputSource()?.takeRetainedValue(),
               let raw = TISGetInputSourceProperty(source, kTISPropertyInputSourceID) else { return }
         let id = Unmanaged<CFString>.fromOpaque(raw).takeUnretainedValue() as String
-        if let layout = KeyboardLayoutMap.androidLayout(forInputSource: id) {
+        let layout = KeyboardLayoutMap.androidLayout(forInputSource: id)
+        capture.cedilla.enabled = layout == "english_us_intl"
+        if let layout {
             log.info("keyboard layout \(id, privacy: .public) -> \(layout, privacy: .public)")
             link.send(Wire.layout(layout))
         } else {
