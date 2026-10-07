@@ -1,5 +1,6 @@
 import AppKit
 import ApplicationServices
+import Carbon
 import DroidBridgeCore
 import os
 
@@ -11,6 +12,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let clipboard = ClipboardSync()
     private var statusItem: NSStatusItem!
     private var tapTimer: Timer?
+    private let arrangementWindow = ArrangementWindowController()
+    private var passage: Passage?
     private let log = Logger(subsystem: "dev.droidbridge", category: "app")
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -26,14 +29,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             return true
         }
         capture.onRemoteChanged = { [weak self] _ in self?.updateIcon() }
+        capture.passage = { [weak self] in self?.passage }
+        refreshPassage()
+        arrangementWindow.model.onChange = { [weak self] in self?.refreshPassage() }
+        NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification, object: nil,
+                                               queue: .main) { [weak self] _ in
+            self?.refreshPassage()
+            if self?.capture.isRemote == false { self?.arrangementWindow.model.reload() }
+        }
+        DistributedNotificationCenter.default().addObserver(
+            forName: NSNotification.Name(kTISNotifySelectedKeyboardInputSourceChanged as String), object: nil, queue: .main
+        ) { [weak self] _ in self?.sendKeyboardLayout() }
         clipboard.send = { [weak self] text in
             guard let self, case .connected = self.link.state else { return }
             self.link.send(Wire.clipboard(text))
         }
         link.onState = { [weak self] state in
             guard let self else { return }
-            if case .connected = state {
+            if case let .connected(model, width, height) = state {
                 self.clipboard.pushCurrent()
+                self.sendKeyboardLayout()
+                self.arrangementWindow.model.deviceName = model
+                self.arrangementWindow.model.deviceSize = CGSize(width: width, height: height)
             } else {
                 self.capture.returnToMac()
             }
@@ -59,6 +76,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         link.stop()
     }
 
+    private func refreshPassage() {
+        passage = Arrangements.passage(for: DisplayInfo.all())
+    }
+
+    /// Makes the device's keyboard layout match the Mac's current one, so dead keys work the same.
+    private func sendKeyboardLayout() {
+        guard case .connected = link.state,
+              let source = TISCopyCurrentKeyboardLayoutInputSource()?.takeRetainedValue(),
+              let raw = TISGetInputSourceProperty(source, kTISPropertyInputSourceID) else { return }
+        let id = Unmanaged<CFString>.fromOpaque(raw).takeUnretainedValue() as String
+        if let layout = KeyboardLayoutMap.androidLayout(forInputSource: id) {
+            log.info("keyboard layout \(id, privacy: .public) -> \(layout, privacy: .public)")
+            link.send(Wire.layout(layout))
+        } else {
+            log.info("no Android layout for \(id, privacy: .public)")
+        }
+    }
+
     private func startTapWhenAllowed() {
         if capture.start() { return }
         tapTimer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] t in
@@ -70,7 +105,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     private func applySettings() {
-        capture.options.placement = Settings.placement
         capture.options.speed = Settings.speed
         capture.options.commandAsControl = Settings.commandAsControl
         capture.options.invertScroll = Settings.invertScroll
@@ -102,16 +136,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         share.state = Settings.enabled ? .on : .off
         menu.addItem(share)
 
-        let placement = NSMenuItem(title: L("menu.placement"), action: nil, keyEquivalent: "")
-        let placementMenu = NSMenu()
-        for p in Placement.allCases {
-            let i = item(L("placement.\(p.rawValue)"), #selector(choosePlacement(_:)))
-            i.representedObject = p.rawValue
-            i.state = Settings.placement == p ? .on : .off
-            placementMenu.addItem(i)
-        }
-        placement.submenu = placementMenu
-        menu.addItem(placement)
+        menu.addItem(item(L("menu.arrange"), #selector(openArrangement)))
 
         let speed = NSMenuItem(title: L("menu.speed"), action: nil, keyEquivalent: "")
         let speedMenu = NSMenu()
@@ -165,10 +190,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if !Settings.enabled { capture.returnToMac() }
     }
 
-    @objc private func choosePlacement(_ sender: NSMenuItem) {
-        guard let raw = sender.representedObject as? String, let p = Placement(rawValue: raw) else { return }
-        Settings.placement = p
-        applySettings()
+    @objc private func openArrangement() {
+        arrangementWindow.show()
     }
 
     @objc private func chooseSpeed(_ sender: NSMenuItem) {

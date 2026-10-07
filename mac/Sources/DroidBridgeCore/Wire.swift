@@ -7,7 +7,7 @@ public enum Wire {
     public static let maxPayload = 1 << 20
 
     public enum Out: UInt8 {
-        case hello = 0x01, enter = 0x02, leave = 0x03, mouse = 0x04, keys = 0x05, clipboard = 0x06, ping = 0x07
+        case hello = 0x01, enter = 0x02, leave = 0x03, mouse = 0x04, keys = 0x05, clipboard = 0x06, ping = 0x07, layout = 0x08
     }
 
     public enum In: UInt8 {
@@ -50,6 +50,9 @@ public enum Wire {
     public static func clipboard(_ text: String) -> Data { frame(.clipboard, Array(text.utf8)) }
 
     public static func ping() -> Data { frame(.ping) }
+
+    /// The Android keyboard layout to use (see KeyboardLayoutMap).
+    public static func layout(_ name: String) -> Data { frame(.layout, Array(name.utf8)) }
 
     public static func decode(type: UInt8, payload: [UInt8]) -> Message {
         switch In(rawValue: type) {

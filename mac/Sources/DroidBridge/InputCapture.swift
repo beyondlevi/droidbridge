@@ -7,7 +7,6 @@ import os
 /// forwards them to the device instead.
 final class InputCapture {
     struct Options {
-        var placement: Placement = .right
         var speed: Double = 1.0
         var commandAsControl = true
         var invertScroll = false
@@ -20,12 +19,14 @@ final class InputCapture {
     var onRemoteChanged: ((Bool) -> Void)?
     /// Whether crossing to the device is allowed (a device is connected and sharing is on).
     var canCross: () -> Bool = { false }
+    /// The passage to the device for the current displays (see Arrangements).
+    var passage: () -> Passage? = { nil }
 
     private(set) var isRemote = false
     private let log = Logger(subsystem: "dev.droidbridge", category: "input")
     private var tap: CFMachPort?
     private var source: CFRunLoopSource?
-    private var crossedDisplay: CGRect = .zero
+    private var crossed: Passage?
     /// After coming back, the cursor must move away from the edge before it can cross again.
     private var armed = true
     private var buttons: UInt8 = 0
@@ -69,13 +70,14 @@ final class InputCapture {
         send?(Wire.leave())
         keyboard.reset()
         buttons = 0
-        let r = ratio ?? 0.5
-        let p = EdgeGeometry.returnPoint(display: crossedDisplay, ratio: r, placement: options.placement)
-        CGWarpMouseCursorPosition(p)
+        if let passage = crossed {
+            let p = EdgeGeometry.returnPoint(passage: passage, androidRatio: ratio ?? 0.5)
+            CGWarpMouseCursorPosition(p)
+            log.info("back on the Mac at \(p.x), \(p.y)")
+        }
         CGAssociateMouseAndMouseCursorPosition(1)
         cursor.show()
         armed = false
-        log.info("back on the Mac at \(p.x), \(p.y)")
         onRemoteChanged?(false)
     }
 
@@ -99,23 +101,24 @@ final class InputCapture {
     private func checkCrossing(_ event: CGEvent) {
         let p = event.location
         let delta = CGVector(dx: event.getDoubleValueField(.mouseEventDeltaX), dy: event.getDoubleValueField(.mouseEventDeltaY))
-        let displays = Self.displays()
         if !armed {
-            if let d = displays.first(where: { $0.contains(p) }),
-               EdgeGeometry.isClear(of: d, at: p, placement: options.placement) || d != crossedDisplay {
+            if let last = crossed, !last.display.contains(p) || EdgeGeometry.isClear(of: last, at: p) {
+                armed = true
+            } else if crossed == nil {
                 armed = true
             }
             return
         }
-        guard canCross(), let c = EdgeGeometry.crossing(at: p, delta: delta, placement: options.placement, displays: displays) else {
+        guard canCross(), let passage = passage(),
+              let ratio = EdgeGeometry.crossing(at: p, delta: delta, passage: passage, displays: Self.displays()) else {
             return
         }
         isRemote = true
-        crossedDisplay = c.display
+        crossed = passage
         CGAssociateMouseAndMouseCursorPosition(0)
         cursor.hide()
-        send?(Wire.enter(side: options.placement.androidSide, ratio: c.ratio))
-        log.info("to Android, ratio \(c.ratio)")
+        send?(Wire.enter(side: passage.edge.androidSide, ratio: ratio))
+        log.info("to Android, ratio \(ratio)")
         onRemoteChanged?(true)
     }
 

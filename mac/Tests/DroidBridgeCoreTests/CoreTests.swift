@@ -35,49 +35,90 @@ final class WireTests: XCTestCase {
 }
 
 final class EdgeTests: XCTestCase {
-    let main = CGRect(x: 0, y: 0, width: 1512, height: 982)
-    let external = CGRect(x: 1512, y: -200, width: 1920, height: 1080)
+    // Levi's setup: a 1080p monitor as the main display, the MacBook to its right and lower.
+    let external = CGRect(x: 0, y: 0, width: 1920, height: 1080)
+    let builtin = CGRect(x: 1920, y: 494, width: 1920, height: 1243)
+    var displays: [CGRect] { [external, builtin] }
 
-    func testRightEdgeSingleDisplay() {
-        let c = EdgeGeometry.crossing(at: CGPoint(x: 1511.5, y: 491), delta: CGVector(dx: 3, dy: 0), placement: .right, displays: [main])
-        XCTAssertEqual(c?.display, main)
-        XCTAssertEqual(c?.ratio ?? 0, 0.5, accuracy: 0.001)
+    func testFullRightEdge() {
+        let p = Passage(display: builtin, edge: .right, start: 0, end: 1)
+        let r = EdgeGeometry.crossing(at: CGPoint(x: 3839.5, y: 494 + 1243 / 2), delta: CGVector(dx: 3, dy: 0), passage: p, displays: displays)
+        XCTAssertEqual(r ?? -1, 0.5, accuracy: 0.001)
     }
 
     func testNoCrossingWhenMovingInward() {
-        XCTAssertNil(EdgeGeometry.crossing(at: CGPoint(x: 1511.5, y: 491), delta: CGVector(dx: -3, dy: 0), placement: .right, displays: [main]))
+        let p = Passage(display: builtin, edge: .right, start: 0, end: 1)
+        XCTAssertNil(EdgeGeometry.crossing(at: CGPoint(x: 3839.5, y: 900), delta: CGVector(dx: -3, dy: 0), passage: p, displays: displays))
     }
 
-    func testEdgeShared() {
-        // The main display's right edge leads to the external one, so it is not free.
-        XCTAssertNil(EdgeGeometry.crossing(at: CGPoint(x: 1511.5, y: 300), delta: CGVector(dx: 3, dy: 0), placement: .right, displays: [main, external]))
-        let c = EdgeGeometry.crossing(at: CGPoint(x: 3431.6, y: 340), delta: CGVector(dx: 3, dy: 0), placement: .right, displays: [main, external])
-        XCTAssertEqual(c?.display, external)
-        XCTAssertEqual(c?.ratio ?? 0, 0.5, accuracy: 0.001)
+    func testOnlyInsideThePassage() {
+        let p = Passage(display: builtin, edge: .right, start: 0.2, end: 0.6)
+        XCTAssertNil(EdgeGeometry.crossing(at: CGPoint(x: 3839.5, y: 494 + 0.1 * 1243), delta: CGVector(dx: 2, dy: 0), passage: p, displays: displays))
+        let r = EdgeGeometry.crossing(at: CGPoint(x: 3839.5, y: 494 + 0.5 * 1243), delta: CGVector(dx: 2, dy: 0), passage: p, displays: displays)
+        XCTAssertEqual(r ?? -1, 0.75, accuracy: 0.001)
     }
 
-    func testPartlyFreeEdge() {
-        // Below the external display's bottom (y 880..982) the main display's right edge is free.
-        XCTAssertNotNil(EdgeGeometry.crossing(at: CGPoint(x: 1511.5, y: 950), delta: CGVector(dx: 1, dy: 0), placement: .right, displays: [main, external]))
+    func testReturnPointMapsBackIntoThePassage() {
+        let p = Passage(display: builtin, edge: .right, start: 0.2, end: 0.6)
+        let point = EdgeGeometry.returnPoint(passage: p, androidRatio: 0.75)
+        XCTAssertTrue(builtin.contains(point))
+        XCTAssertEqual(point.y, 494 + 0.5 * 1243, accuracy: 0.01)
+        XCTAssertNil(EdgeGeometry.crossing(at: point, delta: CGVector(dx: 1, dy: 0), passage: p, displays: displays))
+        XCTAssertFalse(EdgeGeometry.isClear(of: p, at: point))
     }
 
-    func testAboveAndBelow() {
-        XCTAssertNotNil(EdgeGeometry.crossing(at: CGPoint(x: 700, y: 0), delta: CGVector(dx: 0, dy: -2), placement: .above, displays: [main]))
-        XCTAssertNotNil(EdgeGeometry.crossing(at: CGPoint(x: 700, y: 981.2), delta: CGVector(dx: 0, dy: 2), placement: .below, displays: [main]))
-        XCTAssertNil(EdgeGeometry.crossing(at: CGPoint(x: 700, y: 500), delta: CGVector(dx: 0, dy: 2), placement: .below, displays: [main]))
+    func testFreeIntervals() {
+        // The external display's right edge touches the MacBook from y 494 to 1080.
+        let free = EdgeGeometry.freeIntervals(of: external, edge: .right, displays: displays)
+        XCTAssertEqual(free.count, 1)
+        XCTAssertEqual(free[0].upperBound, 494.0 / 1080, accuracy: 0.001)
+        // The MacBook's left edge touches the external display from its top to 586 points down.
+        let left = EdgeGeometry.freeIntervals(of: builtin, edge: .left, displays: displays)
+        XCTAssertEqual(left.count, 1)
+        XCTAssertEqual(left[0].lowerBound, 586.0 / 1243, accuracy: 0.001)
+        XCTAssertEqual(EdgeGeometry.freeIntervals(of: builtin, edge: .right, displays: displays), [0...1])
     }
 
-    func testReturnPointIsInsideAndClear() {
-        let p = EdgeGeometry.returnPoint(display: main, ratio: 0.25, placement: .right)
-        XCTAssertTrue(main.contains(p))
-        XCTAssertEqual(p.y, 245.5, accuracy: 0.01)
-        XCTAssertNil(EdgeGeometry.crossing(at: p, delta: CGVector(dx: 1, dy: 0), placement: .right, displays: [main]))
-        XCTAssertFalse(EdgeGeometry.isClear(of: main, at: p, placement: .right))
+    func testSharedEdgeNeverCrosses() {
+        let p = Passage(display: external, edge: .right, start: 0, end: 1)
+        XCTAssertNil(EdgeGeometry.crossing(at: CGPoint(x: 1919.5, y: 800), delta: CGVector(dx: 2, dy: 0), passage: p, displays: displays))
+        XCTAssertNotNil(EdgeGeometry.crossing(at: CGPoint(x: 1919.5, y: 200), delta: CGVector(dx: 2, dy: 0), passage: p, displays: displays))
     }
 
-    func testPlacementSides() {
-        XCTAssertEqual(Placement.right.androidSide, .left)
-        XCTAssertEqual(Placement.below.androidSide, .top)
+    func testSnapClampsIntoFreeStretch() {
+        let s = EdgeGeometry.snap(center: 0.4, length: 0.6, free: [0...0.457])
+        XCTAssertEqual(s?.lowerBound ?? -1, 0, accuracy: 0.001)
+        XCTAssertEqual(s?.upperBound ?? -1, 0.457, accuracy: 0.001)
+        let t = EdgeGeometry.snap(center: 0.9, length: 0.4, free: [0...1])
+        XCTAssertEqual(t?.lowerBound ?? -1, 0.6, accuracy: 0.001)
+        XCTAssertNil(EdgeGeometry.snap(center: 0.5, length: 0.5, free: []))
+    }
+
+    func testDefaultPassage() {
+        let p = EdgeGeometry.defaultPassage(edge: .right, displays: displays)
+        XCTAssertEqual(p, Passage(display: builtin, edge: .right, start: 0, end: 1))
+        XCTAssertEqual(EdgeGeometry.defaultPassage(edge: .top, displays: displays)?.display, external)
+    }
+
+    func testTopAndBottom() {
+        let top = Passage(display: external, edge: .top, start: 0, end: 1)
+        XCTAssertNotNil(EdgeGeometry.crossing(at: CGPoint(x: 700, y: 0), delta: CGVector(dx: 0, dy: -2), passage: top, displays: displays))
+        let bottom = Passage(display: external, edge: .bottom, start: 0, end: 1)
+        XCTAssertNotNil(EdgeGeometry.crossing(at: CGPoint(x: 700, y: 1079.2), delta: CGVector(dx: 0, dy: 2), passage: bottom, displays: displays))
+    }
+
+    func testAndroidSides() {
+        XCTAssertEqual(Edge.right.androidSide, .left)
+        XCTAssertEqual(Edge.bottom.androidSide, .top)
+    }
+}
+
+final class LayoutMapTests: XCTestCase {
+    func testKnownLayouts() {
+        XCTAssertEqual(KeyboardLayoutMap.androidLayout(forInputSource: "com.apple.keylayout.USInternational-PC"), "english_us_intl")
+        XCTAssertEqual(KeyboardLayoutMap.androidLayout(forInputSource: "com.apple.keylayout.Brazilian-ABNT2"), "brazilian")
+        XCTAssertNil(KeyboardLayoutMap.androidLayout(forInputSource: "com.apple.keylayout.Klingon"))
+        XCTAssertNil(KeyboardLayoutMap.androidLayout(forInputSource: "com.apple.inputmethod.Kotoeri"))
     }
 }
 
