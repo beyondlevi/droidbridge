@@ -52,7 +52,7 @@ final class ArrangementModel: ObservableObject {
         var best: (Arrangement, CGFloat)?
         for d in displays {
             let r = d.bounds
-            for edge in Edge.allCases {
+            for edge in DroidBridgeCore.Edge.allCases {
                 let gap: CGFloat
                 let center: CGFloat
                 switch edge {
