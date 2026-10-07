@@ -1,0 +1,33 @@
+name: build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platforms;android-36 build-tools;36.0.0
+      - name: Server
+        run: server/build.sh
+      - name: Mac tests
+        working-directory: mac
+        run: swift test
+      - name: Mac app
+        working-directory: mac
+        run: scripts/build-app.sh && ditto -c -k --keepParent dist/DroidBridge.app dist/DroidBridge.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: DroidBridge
+          path: |
+            mac/dist/DroidBridge.zip
+            server/build/droidbridge-server.jar
