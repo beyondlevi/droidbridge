@@ -254,6 +254,29 @@ public enum EdgeGeometry {
         }
     }
 
+    /// When the device turns (its aspect flips between portrait and landscape), the same rectangle
+    /// turned a quarter: the sides touching displays stay where they are. Nil when nothing changes or
+    /// the turned rectangle would overlap a display or touch none.
+    public static func reoriented(device r: CGRect, aspect: CGFloat, displays: [CGRect]) -> CGRect? {
+        guard aspect > 0, (r.width >= r.height) != (aspect >= 1) else { return nil }
+        let w = r.height
+        let h = r.width
+        var x = r.midX - w / 2
+        var y = r.midY - h / 2
+        for p in passages(device: r, displays: displays) {
+            switch p.edge {
+            case .right: x = r.minX
+            case .left: x = r.maxX - w
+            case .top: y = r.maxY - h
+            case .bottom: y = r.minY
+            }
+        }
+        let next = CGRect(x: x, y: y, width: w, height: h)
+        let overlaps = displays.contains { $0.intersection(next).width > 0.5 && $0.intersection(next).height > 0.5 }
+        guard !overlaps, !passages(device: next, displays: displays).isEmpty else { return nil }
+        return next
+    }
+
     /// The default device rectangle: against the outermost display's free right edge, centered,
     /// `size` times that display's height.
     public static func defaultDevice(displays: [CGRect], aspect: CGFloat, size: CGFloat = 0.6) -> CGRect? {

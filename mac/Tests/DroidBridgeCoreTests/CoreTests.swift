@@ -161,6 +161,22 @@ final class DeviceRectTests: XCTestCase {
         XCTAssertNil(EdgeGeometry.snap(device: CGRect(x: 5000, y: 100, width: 300, height: 300), displays: displays, reach: 24))
     }
 
+    func testReorientedKeepsTheTouchingSide() {
+        // Portrait, right of the MacBook: turning it keeps its left side on the MacBook's right edge.
+        let r = CGRect(x: 3840, y: 800, width: 300, height: 600)
+        let t = EdgeGeometry.reoriented(device: r, aspect: 2, displays: displays)
+        XCTAssertEqual(t, CGRect(x: 3840, y: 950, width: 600, height: 300))
+        XCTAssertNil(EdgeGeometry.reoriented(device: r, aspect: 0.5, displays: displays))
+    }
+
+    func testReorientedInTheCorner() {
+        // Right of the external display and above the MacBook: both sides stay.
+        let r = CGRect(x: 1920, y: 94, width: 530, height: 400)
+        let t = EdgeGeometry.reoriented(device: r, aspect: 0.75, displays: displays)
+        XCTAssertEqual(t, CGRect(x: 1920, y: -36, width: 400, height: 530))
+        XCTAssertEqual(EdgeGeometry.passages(device: t!, displays: displays).count, 2)
+    }
+
     func testDefaultDevice() {
         let r = EdgeGeometry.defaultDevice(displays: displays, aspect: 0.5)
         XCTAssertEqual(r?.minX, 3840)

@@ -31,7 +31,7 @@ All integers are big-endian. `side` is a side of the Android screen:
 
 | Type | Name | Payload |
 |---|---|---|
-| 0x81 | DEVICE | u16 protocol version, u16 width, u16 height, UTF-8 model; sent first |
+| 0x81 | DEVICE | u16 protocol version, u16 width, u16 height, UTF-8 model; sent first, and again when the screen turns |
 | 0x82 | EDGE | u8 side, u16 ratio: the pointer was pushed out through a return stretch |
 | 0x83 | CLIPBOARD | UTF-8 text copied on the device |
 | 0x84 | PONG | empty |

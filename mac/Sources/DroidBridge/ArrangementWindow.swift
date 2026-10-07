@@ -9,8 +9,15 @@ final class ArrangementModel: ObservableObject {
     @Published var displays: [DisplayInfo] = []
     @Published var device: CGRect?
     @Published var deviceName: String?
+    /// The device screen as it is held now; when it turns, its rectangle turns too.
     @Published var deviceSize: CGSize? {
-        didSet { if oldValue != deviceSize { reload() } }
+        didSet {
+            guard oldValue != deviceSize else { return }
+            reload()
+            if let r = device, let turned = EdgeGeometry.reoriented(device: r, aspect: aspect, displays: bounds) {
+                commit(turned)
+            }
+        }
     }
     /// Drag offset of the device, in global points.
     @Published var drag: CGSize?

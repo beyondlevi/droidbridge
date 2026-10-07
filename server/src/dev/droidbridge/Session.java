@@ -70,6 +70,7 @@ final class Session {
     void run() throws IOException {
         int[] size = displaySize();
         sendDevice(size[0], size[1]);
+        watchRotation(size);
         if (clipboard != null) {
             // Clipboard callbacks need a looper; the main thread runs one.
             new Handler(Looper.getMainLooper()).post(() -> clipboard.addPrimaryClipChangedListener(this::onDeviceClipboard));
@@ -361,6 +362,43 @@ final class Session {
         out.writeInt(payload.length);
         out.write(payload);
         out.flush();
+    }
+
+    /** Tells the Mac when the screen turns (its size swaps), so its arrangement can turn too. */
+    private void watchRotation(int[] initial) {
+        final int[] last = initial.clone();
+        Handler main = new Handler(Looper.getMainLooper());
+        main.post(() -> {
+            android.hardware.display.DisplayManager dm = (android.hardware.display.DisplayManager) com.genymobile.scrcpy.FakeContext.get()
+                    .getSystemService(android.content.Context.DISPLAY_SERVICE);
+            dm.registerDisplayListener(new android.hardware.display.DisplayManager.DisplayListener() {
+                @Override
+                public void onDisplayAdded(int displayId) {
+                }
+
+                @Override
+                public void onDisplayRemoved(int displayId) {
+                }
+
+                @Override
+                public void onDisplayChanged(int displayId) {
+                    if (displayId != 0) {
+                        return;
+                    }
+                    int[] size = displaySize();
+                    if (size[0] > 0 && (size[0] != last[0] || size[1] != last[1])) {
+                        last[0] = size[0];
+                        last[1] = size[1];
+                        Log.i("display is now " + size[0] + "x" + size[1]);
+                        try {
+                            sendDevice(size[0], size[1]);
+                        } catch (IOException e) {
+                            Log.w("rotation: " + e.getMessage());
+                        }
+                    }
+                }
+            }, main);
+        });
     }
 
     private int[] displaySize() {
