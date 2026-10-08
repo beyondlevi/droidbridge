@@ -25,7 +25,7 @@ final class DeviceLink {
 
     enum Transport { case usb, wifi }
 
-    static let serverVersion = "0.2.0"
+    static let serverVersion = "0.2.1"
     private static let remoteJar = "/data/local/tmp/droidbridge-server.jar"
     private let log = Logger(subsystem: "dev.droidbridge", category: "link")
 
