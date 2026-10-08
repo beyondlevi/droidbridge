@@ -25,7 +25,7 @@ final class DeviceLink {
 
     enum Transport { case usb, wifi }
 
-    static let serverVersion = "0.2.0"
+    static let serverVersion = "0.2.1"
     private static let remoteJar = "/data/local/tmp/droidbridge-server.jar"
     private let log = Logger(subsystem: "dev.droidbridge", category: "link")
 
@@ -38,7 +38,12 @@ final class DeviceLink {
     private var hardwareSerials: [String: String] = [:]
 
     private(set) var state: State = .waiting {
-        didSet { if state != oldValue { let s = state; DispatchQueue.main.async { self.onState?(s) } } }
+        didSet {
+            guard state != oldValue else { return }
+            let s = state
+            log.notice("state: \(String(describing: s), privacy: .public)")
+            DispatchQueue.main.async { self.onState?(s) }
+        }
     }
 
     private let queue = DispatchQueue(label: "dev.droidbridge.link")
@@ -106,7 +111,7 @@ final class DeviceLink {
                 try connect(adb: adb, serial: serial)
                 readUntilClosed()
             } catch {
-                log.error("connect failed: \(error.localizedDescription, privacy: .public)")
+                log.error("connect to \(serial, privacy: .public) failed: \(error.localizedDescription, privacy: .public)")
                 state = .failed(error.localizedDescription)
             }
             disconnect()
@@ -196,14 +201,34 @@ final class DeviceLink {
 
         socket = try Self.connectLocal(port: p)
         send(Wire.hello())
+        log.notice("connected to \(serial, privacy: .public)")
     }
+
+    /// Seconds without anything from the device before the link counts as dead.
+    static let silenceLimit: TimeInterval = 8
 
     private func readUntilClosed() {
         var reader = FrameReader()
         var buf = [UInt8](repeating: 0, count: 64 * 1024)
+        var lastHeard = Date()
+        var lastPing = Date()
         while !stopped {
+            // The socket times out every second (SO_RCVTIMEO), so a device that stops answering
+            // without closing the connection (asleep, unplugged mid-write) is noticed.
+            if Date().timeIntervalSince(lastPing) >= 2 {
+                send(Wire.ping())
+                lastPing = Date()
+            }
             let n = recv(socket, &buf, buf.count, 0)
+            if n < 0, errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR {
+                if Date().timeIntervalSince(lastHeard) > Self.silenceLimit {
+                    log.notice("device silent for \(Int(Self.silenceLimit)) s, reconnecting")
+                    break
+                }
+                continue
+            }
             if n <= 0 { break }
+            lastHeard = Date()
             do {
                 for message in try reader.feed(Array(buf[0..<n])) {
                     if case let .device(_, w, h, model) = message {
@@ -216,10 +241,12 @@ final class DeviceLink {
                 break
             }
         }
-        log.info("connection closed")
+        log.notice("connection closed")
     }
 
     private func disconnect() {
+        // Wakes a send blocked on a full socket before waiting for the write queue.
+        if socket >= 0 { shutdown(socket, SHUT_RDWR) }
         writeQueue.sync {
             if socket >= 0 { close(socket); socket = -1 }
         }
@@ -281,6 +308,10 @@ final class DeviceLink {
         var one: Int32 = 1
         setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &one, socklen_t(MemoryLayout<Int32>.size))
         setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &one, socklen_t(MemoryLayout<Int32>.size))
+        var second = timeval(tv_sec: 1, tv_usec: 0)
+        setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &second, socklen_t(MemoryLayout<timeval>.size))
+        var sendLimit = timeval(tv_sec: 3, tv_usec: 0)
+        setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &sendLimit, socklen_t(MemoryLayout<timeval>.size))
         var addr = sockaddr_in()
         addr.sin_family = sa_family_t(AF_INET)
         addr.sin_port = in_port_t(UInt16(port).bigEndian)
