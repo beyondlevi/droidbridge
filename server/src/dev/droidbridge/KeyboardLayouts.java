@@ -23,11 +23,17 @@ final class KeyboardLayouts {
             return false;
         }
         try {
+            // The Mac sends its layout right after connecting; the keyboard may not be registered yet.
             InputDevice device = null;
-            for (int id : InputDevice.getDeviceIds()) {
-                InputDevice d = InputDevice.getDevice(id);
-                if (d != null && deviceName.equals(d.getName())) {
-                    device = d;
+            for (int attempt = 0; attempt < 30 && device == null; attempt++) {
+                for (int id : InputDevice.getDeviceIds()) {
+                    InputDevice d = InputDevice.getDevice(id);
+                    if (d != null && deviceName.equals(d.getName())) {
+                        device = d;
+                    }
+                }
+                if (device == null) {
+                    Thread.sleep(100);
                 }
             }
             if (device == null) {
@@ -42,6 +48,9 @@ final class KeyboardLayouts {
             set.invoke(im, identifier, PREFIX + layout);
             Log.i("keyboard layout " + layout);
             return true;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return false;
         } catch (ReflectiveOperationException | RuntimeException e) {
             Log.e("cannot set keyboard layout " + layout, e);
             return false;

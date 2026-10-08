@@ -29,6 +29,9 @@ final class InputCapture {
     private var tap: CFMachPort?
     private var source: CFRunLoopSource?
     private var crossed: Passage?
+    /// Where the cursor stays while the pointer is on the device.
+    private var frozenAt = CGPoint.zero
+    private var refreezes = 0
     private var activePassages: [Passage] = []
     /// After coming back, the cursor must move away from the edge before it can cross again.
     private var armed = true
@@ -62,7 +65,9 @@ final class InputCapture {
         source = CFMachPortCreateRunLoopSource(nil, tap, 0)
         CFRunLoopAddSource(CFRunLoopGetMain(), source, .commonModes)
         CGEvent.tapEnable(tap: tap, enable: true)
-        log.info("event tap started")
+        log.notice("event tap started")
+        // Warping the cursor would otherwise mute the mouse for 0.25 s.
+        CGEventSource(stateID: .combinedSessionState)?.localEventsSuppressionInterval = 0
         return true
     }
 
@@ -130,17 +135,20 @@ final class InputCapture {
         isRemote = true
         crossed = passage
         activePassages = all
+        frozenAt = CGEvent(source: nil)?.location ?? frozenAt
+        refreezes = 0
         CGAssociateMouseAndMouseCursorPosition(0)
         cursor.hide()
         let returns = all.map { (side: $0.edge.androidSide, start: $0.deviceStart, end: $0.deviceEnd) }
         send?(Wire.enter(side: passage.edge.androidSide, ratio: ratio, returns: returns))
-        log.info("to Android, ratio \(ratio)")
+        log.notice("to Android, ratio \(ratio)")
         onRemoteChanged?(true)
     }
 
     private func forward(_ type: CGEventType, _ event: CGEvent) {
         switch type {
         case .mouseMoved, .leftMouseDragged, .rightMouseDragged, .otherMouseDragged:
+            keepFrozen(event.location)
             let dx = Int((event.getDoubleValueField(.mouseEventDeltaX) * options.speed).rounded())
             let dy = Int((event.getDoubleValueField(.mouseEventDeltaY) * options.speed).rounded())
             if dx != 0 || dy != 0 { send?(Wire.mouse(buttons: buttons, dx: dx, dy: dy)) }
@@ -160,6 +168,19 @@ final class InputCapture {
             flags(event)
         default:
             break
+        }
+    }
+
+    /// The cursor must stay put while the pointer is on the device. Detaching it from the mouse
+    /// (CGAssociateMouseAndMouseCursorPosition) does not always hold, e.g. right after the app starts,
+    /// so a cursor found away from its spot goes back and is detached again.
+    private func keepFrozen(_ location: CGPoint) {
+        guard abs(location.x - frozenAt.x) > 1 || abs(location.y - frozenAt.y) > 1 else { return }
+        CGWarpMouseCursorPosition(frozenAt)
+        CGAssociateMouseAndMouseCursorPosition(0)
+        refreezes += 1
+        if refreezes == 1 || refreezes % 100 == 0 {
+            log.notice("cursor was moving while on the device; frozen again (\(self.refreezes)x)")
         }
     }
 
